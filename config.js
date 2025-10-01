@@ -19,7 +19,7 @@ module.exports = {
      {
       name: "andre_andrezinh2",
       password: "DejLqWEFBIlzi7Z2",
-      host: "eu-ro-01.wisp.uno",
+      host: "154.43.62.60",
       port:  9969,
       secure: false
     }
