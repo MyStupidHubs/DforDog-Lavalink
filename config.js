@@ -17,10 +17,10 @@ module.exports = {
   errorLog: "", 
   nodes: [
      {
-      name: "DJforDog",
-      password: "RbC!pBK9!@ZO",
-      host: "154.43.62.60",
-      port:  9969,
+      name: "GlceYT",
+      password: "glace",
+      host: "us-01.strixnodes.com",
+      port: 8003,
       secure: false
     }
   ]
