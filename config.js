@@ -17,11 +17,12 @@ module.exports = {
   errorLog: "", 
   nodes: [
      {
-      name: "DforDog",
-      password: "RbC!pBK9!@ZO",
-      host: "154.43.62.60",
-      port: 9969,
+      name: "Sakura",
+      password: "Rikka",
+      host: "lavalink.aiko-project.xyz",
+      port:  2333,
       secure: false
-    }
+      status: ✅ working
+     }
   ]
 }
