@@ -17,11 +17,11 @@ module.exports = {
   errorLog: "", 
   nodes: [
      {
-      name: "Sus Gang™",
-      password: "susara",
-      host: "pnode1.danbot.host",
-      port:  1226,
-      secure: false
+      name: "DJforDog",
+      password: "AYANO",
+      host: "194.58.66.44",
+      port: 3660,
+      secure: false,
      }
   ]
 }
