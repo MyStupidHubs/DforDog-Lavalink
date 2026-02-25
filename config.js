@@ -22,10 +22,10 @@ module.exports = {
   errorLog: "", 
   nodes: [
      {
-       name: "GlaceYT2",
-       password: "glace",
-       host: "45.13.236.245",
-       port: 25582,
+       name: "DJforDog",
+       password: "UHrg5iqJVE0",
+       host: "168.222.251.98",
+       port: 5380,
        secure: false
     }
   ]
