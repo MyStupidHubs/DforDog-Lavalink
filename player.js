@@ -74,12 +74,44 @@ async function initializePlayer(client) {
     client.lavalinkManager = nodeManager;
     client.nodeManager = nodeManager;
 
+    client.riffy.on("nodeConnect", node => {
+        console.log(`${colors.cyan}[ LAVALINK ]${colors.reset} ${colors.green}Node ${node.name} Connected ✅${colors.reset}`);
+        client.user.setPresence({
+            activities: [{ name: "DJ for Dog: 🟢" }],
+            status: "online"
+        });
+
+        const channel = client.channels.cache.get("1474712195127316530");
+        if (channel) channel.setName("DJ for Dog: 🟢").catch(console.error);
+    });
+
+    client.riffy.on("nodeError", (node, error) => {
+        console.log(`${colors.cyan}[ LAVALINK ]${colors.reset} ${colors.red}Node ${node.name} Error ❌ | ${error.message}${colors.reset}`);
+        client.user.setPresence({
+            activities: [{ name: "DJ for Dog: 🔴" }],
+            status: "dnd"
+        });
+
+        const channel = client.channels.cache.get("1474712195127316530");
+        if (channel) channel.setName("DJ for Dog: 🔴").catch(console.error);
+    });
+
+    client.riffy.on("nodeDisconnect", (node) => {
+        console.log(`${colors.cyan}[ LAVALINK ]${colors.reset} ${colors.red}Node ${node.name} Disconnected ❌${colors.reset}`);
+        client.user.setPresence({
+            activities: [{ name: "DJ for Dog: 🔴" }],
+            status: "dnd"
+        });
+
+        const channel = client.channels.cache.get("1474712195127316530");
+        if (channel) channel.setName("DJ for Dog: 🔴").catch(console.error);
+    });
+
     client.riffy.on("trackException", async (player, error) => {
         const langSync = getLangSync();
         const errorMsg = error?.message || 'Unknown error';
         const isTimeout = errorMsg.includes('timeout') || errorMsg.includes('Read timed out') || errorMsg.includes('SocketTimeoutException');
         
-        // Log timeout errors as warnings (they're common on slow connections)
         if (isTimeout) {
             console.warn(`${colors.cyan}[ LAVALINK ]${colors.reset} ${colors.yellow}Track timeout for guild ${player?.guildId || 'unknown'}: ${errorMsg}${colors.reset}`);
         } else {
@@ -91,7 +123,6 @@ async function initializePlayer(client) {
             const lang = await getLang(player.guildId).catch(() => ({ console: { player: {} } }));
             const t = lang.console?.player || {};
             
-            // More specific error message for timeouts
             let errorMessage = t.trackError?.message || 'Failed to load the track.';
             if (isTimeout) {
                 errorMessage = t.trackError?.timeoutMessage || 'Connection timeout while loading track. This is usually a network issue on the Lavalink server.';
@@ -126,14 +157,12 @@ async function initializePlayer(client) {
         const lang = getLangSync();
         const errorMsg = error?.message || 'Unknown error';
         
-        // Don't log connection timeout errors as critical (they're handled elsewhere)
         if (errorMsg.includes('Connect Timeout') || errorMsg.includes('fetch failed') || errorMsg.includes('timeout')) {
             console.warn(`${colors.cyan}[ LAVALINK ]${colors.reset} ${colors.yellow}Track stuck due to connection timeout for guild ${player?.guildId || 'unknown'} - will retry${colors.reset}`);
         } else {
             console.error(`${colors.cyan}[ LAVALINK ]${colors.reset} ${colors.red}${lang.console?.player?.trackStuck?.replace('{guildId}', player?.guildId || 'unknown').replace('{message}', errorMsg) || `Track Stuck for guild ${player?.guildId || 'unknown'}: ${errorMsg}`}${colors.reset}`);
         }
         
-        // Only stop if player is valid and not destroyed
         if (player && !player.destroyed) {
             try {
                 player.stop();
@@ -216,19 +245,16 @@ async function initializePlayer(client) {
             let attachment = null;
 
             if (config.generateSongCard !== false) {
-                // Extract YouTube ID from track URI for better thumbnail fetching
                 let thumbnailURL = track.info.thumbnail || '';
                 const trackUri = track.info.uri || '';
                 
-                // If thumbnail is missing or invalid, try to extract from URI
                 if ((!thumbnailURL || !thumbnailURL.startsWith('http')) && trackUri) {
-                    // Pass the URI so we can extract YouTube ID from it
                     thumbnailURL = trackUri;
                 }
                 
                 const cardBuffer = await musicCard.generateCard({
                     thumbnailURL: thumbnailURL,
-                    trackURI: trackUri, // Pass URI separately for YouTube ID extraction
+                    trackURI: trackUri,
                     songTitle: track.info.title,
                     songArtist: track.info.author || 'Unknown Artist',
                     trackRequester: requester,
@@ -500,6 +526,7 @@ async function cleanupTrackMessages(client, player) {
     guildTrackMessages.set(guildId, []);
     nowPlayingMessages.delete(guildId);
 }
+
 function formatDuration(ms) {
     const seconds = Math.floor((ms / 1000) % 60);
     const minutes = Math.floor((ms / (1000 * 60)) % 60);
@@ -513,6 +540,7 @@ function formatDuration(ms) {
         .filter(Boolean)
         .join(' ');
 }
+
 function setupCollector(client, player, channel, message) {
     const filter = i => [
         'loopToggle', 'skipTrack', 'disableLoop', 'showLyrics', 'clearQueue',
@@ -662,7 +690,6 @@ async function adjustVolume(player, channel, amount, t = {}) {
     }
 }
 
-
 async function toggleLoop(player, channel, t = {}) {
     player.setLoop(player.loop === "track" ? "queue" : "track");
     await sendEmbed(channel, player.loop === "track" ? (t.controls?.trackLoopActivated || "🔁 **Track loop is activated!**") : (t.controls?.queueLoopActivated || "🔁 **Queue loop is activated!**"));
@@ -672,8 +699,6 @@ async function disableLoop(player, channel, t = {}) {
     player.setLoop("none");
     await sendEmbed(channel, t.controls?.loopDisabled || "❌ **Loop is disabled!**");
 }
-
-
 
 async function getLyrics(trackName, artistName, duration) {
     try {
@@ -718,11 +743,9 @@ async function getLyrics(trackName, artistName, duration) {
     }
 }
 
-
-
 async function showLyrics(channel, player) {
-            const lang = await getLang(player.guildId).catch(() => ({ console: { player: {} } }));
-            const t = lang.console?.player || {};
+    const lang = await getLang(player.guildId).catch(() => ({ console: { player: {} } }));
+    const t = lang.console?.player || {};
     
     if (!player || !player.current || !player.current.info) {
         await sendEmbed(channel, t.lyrics?.noSongPlaying || "🚫 **No song is currently playing.**");
@@ -737,7 +760,6 @@ async function showLyrics(channel, player) {
         return;
     }
 
-    
     const lines = lyrics.split('\n').map(line => line.trim()).filter(Boolean);
     const songDuration = Math.floor(track.length / 1000); 
 
@@ -781,7 +803,7 @@ async function showLyrics(channel, player) {
         type: 'lyrics'
     });
 
-        const updateLyrics = async () => {
+    const updateLyrics = async () => {
         const currentTime = Math.floor(player.position / 1000); 
         const totalLines = lines.length;
 
@@ -853,8 +875,6 @@ async function showLyrics(channel, player) {
         message.delete().catch(() => {});
     });
 }
-
-
 
 function createActionRow1(disabled) {
     return new ActionRowBuilder()
@@ -988,22 +1008,19 @@ async function startProgressUpdates(client, guildId, message, player, track) {
                 const msg = await channel.messages.fetch(stored.messageId).catch(() => null);
                 if (msg) {
                     try {
-                        // Only regenerate card on first update or every 6th update (every 90 seconds) to save memory
                         const shouldRegenerateCard = config.generateSongCard !== false && (updateCount === 0 || updateCount % 6 === 0);
                         
                         if (shouldRegenerateCard) {
-                            // Extract YouTube ID from track URI for better thumbnail fetching
                             let thumbnailURL = track.info.thumbnail || '';
                             const trackUri = track.info.uri || '';
                             
-                            // If thumbnail is missing or invalid, try to extract from URI
                             if ((!thumbnailURL || !thumbnailURL.startsWith('http')) && trackUri) {
                                 thumbnailURL = trackUri;
                             }
                             
                             const cardBuffer = await musicCard.generateCard({
                                 thumbnailURL: thumbnailURL,
-                                trackURI: trackUri, // Pass URI separately for YouTube ID extraction
+                                trackURI: trackUri,
                                 songTitle: track.info.title,
                                 songArtist: track.info.author || 'Unknown Artist',
                                 trackRequester: requesters.get(track.info.uri) || 'Unknown',
@@ -1017,7 +1034,6 @@ async function startProgressUpdates(client, guildId, message, player, track) {
                                 flags: MessageFlags.IsComponentsV2
                             });
                         } else {
-                            // Just update text without regenerating card to save memory/CPU
                             await msg.edit({ 
                                 components: [...components, actionRow1, actionRow2],
                                 flags: MessageFlags.IsComponentsV2
@@ -1037,7 +1053,7 @@ async function startProgressUpdates(client, guildId, message, player, track) {
             progressUpdateIntervals.delete(guildId);
             nowPlayingMessages.delete(guildId);
         }
-    }, 15000); // Increased from 5000ms to 15000ms (15 seconds) to reduce CPU/memory usage
+    }, 15000);
     
     return updateInterval;
 }
