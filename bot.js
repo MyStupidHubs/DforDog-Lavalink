@@ -73,6 +73,11 @@ client.on("clientReady", () => {
     const lang = getLangSync();
     console.log(`${colors.cyan}[ SYSTEM ]${colors.reset} ${colors.green}${lang.console?.bot?.clientLogged?.replace('{tag}', client.user.tag) || `Client logged as ${client.user.tag}`}${colors.reset}`);
     console.log(`${colors.cyan}[ MUSIC ]${colors.reset} ${colors.green}${lang.console?.bot?.musicSystemReady || 'Riffy Music System Ready 🎵'}${colors.reset}`);
+
+    client.user.setPresence({
+        activities: [{ name: "DJ for Dog: 🔴" }],
+        status: "idle"
+    });
    
     const nodeManager = getLavalinkManager();
     if (nodeManager) {
