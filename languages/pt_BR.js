@@ -8,7 +8,7 @@ module.exports = {
             name: "help",
             description: "Obtenha informações sobre o bot e seus comandos",
             category: {
-                name: "categoria",
+                name: "category",
                 description: "Selecione uma categoria para visualizar",
                 choices: {
                     main: "🏠 Menu Principal",
@@ -28,7 +28,7 @@ module.exports = {
             music: {
                 name: "Comandos de Música",
                 emoji: "🎵",
-                description: "Controle a reprodução de música e as configurações"
+                description: "Controle a reprodução e configurações de música"
             },
             playlist: {
                 name: "Comandos de Playlist",
@@ -38,7 +38,7 @@ module.exports = {
             basic: {
                 name: "Comandos Básicos",
                 emoji: "⚙️",
-                description: "Informações gerais do bot e utilitários"
+                description: "Informações gerais e utilidades do bot"
             },
             utility: {
                 name: "Comandos Utilitários",
@@ -57,7 +57,7 @@ module.exports = {
                 commands: "• **Comandos:** {totalCommands}",
                 servers: "• **Servidores:** {totalServers}",
                 users: "• **Usuários:** {totalUsers}",
-                uptime: "• **Uptime:** {uptimeString}",
+                uptime: "• **Tempo Ativo:** {uptimeString}",
                 ping: "• **Ping:** {ping}ms"
             },
             categories: {
@@ -93,7 +93,7 @@ module.exports = {
             header: {
                 title: "# {emoji} {categoryName}",
                 description: "{description}",
-                count: "**{count}** comando{plural} disponível{plural}"
+                count: "**{count}** comando{plural} disponível(is)"
             },
             commands: {
                 title: "## Comandos",
@@ -112,15 +112,15 @@ module.exports = {
             }
         },
         errors: {
-            general: "❌ **Ocorreu um erro ao buscar o menu de ajuda.**",
-            fallback: "❌ Ocorreu um erro ao buscar o menu de ajuda.",
+            general: "❌ **Ocorreu um erro ao carregar o menu de ajuda.**",
+            fallback: "❌ Ocorreu um erro ao carregar o menu de ajuda.",
             fallbackDetails: "**Bot:** {botName}\n**Comandos:** {totalCommands}\n**Servidores:** {totalServers}\n**Suporte:** {supportServer}"
         }
     },
     language: {
         command: {
             name: "language",
-            description: "Defina o idioma do bot para este servidor",
+            description: "Definir o idioma do bot para este servidor",
             option: {
                 name: "lang",
                 description: "Selecione um idioma"
@@ -134,7 +134,7 @@ module.exports = {
         changed: {
             title: "✅ Idioma Alterado",
             description: "O idioma do servidor foi alterado para: **{language}**",
-            note: "O bot usará este idioma para todos os comandos neste servidor."
+            note: "O bot agora usará este idioma para todos os comandos neste servidor."
         },
         available: {
             title: "📚 Idiomas Disponíveis",
@@ -144,33 +144,33 @@ module.exports = {
         },
         errors: {
             notFound: "❌ **Idioma não encontrado!**\nO idioma `{code}` não existe.",
-            failed: "❌ **Falha ao definir idioma!**\n{error}",
+            failed: "❌ **Falha ao definir o idioma!**\n{error}",
             noPermission: "❌ **Você não tem permissão para alterar o idioma!**\nVocê precisa da permissão `Gerenciar Servidor`."
         },
         info: {
             title: "ℹ️ Informações do Idioma",
             description: "**Idioma Atual do Servidor:** {serverLang}\n**Idioma Padrão Global:** {globalLang}\n\n**Idiomas Disponíveis:** {count}",
-            reset: "Para redefinir ao padrão global, use `/language reset`"
+            reset: "Para redefinir para o padrão global, use `/language reset`"
         }
     },
     ping: {
         command: {
             name: "ping",
-            description: "Verifique a latência e o tempo de resposta do bot"
+            description: "Verificar a latência e o tempo de resposta do bot"
         },
         header: {
             title: "# 🏓 Latência do Bot",
             botName: "**{botName}** - Prime Music Bot",
-            subtitle: "Verifique o tempo de resposta e o status de conexão do bot"
+            subtitle: "Verifique o tempo de resposta e o status da conexão do bot"
         },
         metrics: {
             title: "## ⚡ Métricas de Desempenho",
             responseTime: "**Tempo de Resposta:** {latency}ms",
             websocketPing: "**Ping do Websocket:** {ping}ms",
-            botUptime: "**Uptime do Bot:** {uptime}",
+            botUptime: "**Tempo Ativo do Bot:** {uptime}",
             connectionSpeed: {
                 excellent: "🟢 Velocidade de conexão excelente",
-                good: "🟡 Velocidade de conexão boa",
+                good: "🟡 Boa velocidade de conexão",
                 slow: "🔴 Velocidade de conexão lenta"
             }
         },
@@ -187,7 +187,7 @@ module.exports = {
     stats: {
         command: {
             name: "stats",
-            description: "Exibir estatísticas do bot e informações do servidor"
+            description: "Mostrar estatísticas do bot e informações do servidor"
         },
         header: {
             title: "# 📊 Estatísticas do Bot",
@@ -199,13 +199,13 @@ module.exports = {
             servers: "• **Servidores:** {count}",
             users: "• **Usuários:** {count}",
             channels: "• **Canais:** {count}",
-            uptime: "• **Uptime:** {uptime}"
+            uptime: "• **Tempo Ativo:** {uptime}"
         },
         musicStats: {
             title: "## 🎵 Estatísticas de Música",
             activePlayers: "• **Players Ativos:** {count}",
             totalPlayers: "• **Total de Players:** {count}",
-            currentTrack: "• **Música Atual:** {track}"
+            currentTrack: "• **Faixa Atual:** {track}"
         },
         systemInfo: {
             title: "## 💻 Informações do Sistema",
@@ -240,18 +240,18 @@ module.exports = {
     support: {
         command: {
             name: "support",
-            description: "Obtenha o link do servidor de suporte e links importantes"
+            description: "Obter link do servidor de suporte e links importantes"
         },
         header: {
             title: "# 🆘 Suporte e Links",
             botName: "**{botName}** - Prime Music Bot",
-            subtitle: "Obtenha ajuda, reporte problemas ou entre em contato conosco!"
+            subtitle: "Obtenha ajuda, reporte problemas ou conecte-se conosco!"
         },
         links: {
             title: "## 🔗 Links Importantes",
             supportServer: {
                 title: "**📢 Servidor de Suporte**",
-                description: "Entre no nosso servidor do Discord para obter ajuda, atualizações e comunidade!",
+                description: "Entre no nosso servidor do Discord para ajuda, atualizações e comunidade!",
                 link: "[Clique aqui para entrar]({url})"
             },
             github: {
@@ -262,12 +262,12 @@ module.exports = {
             youtube: {
                 title: "**🎬 YouTube**",
                 description: "Assista tutoriais e atualizações!",
-                link: "[Inscrever-se]({url})"
+                link: "[Inscreva-se]({url})"
             },
             website: {
                 title: "**🌐 Website**",
                 description: "Visite nosso site oficial!",
-                link: "[Visitar Site]({url})"
+                link: "[Visitar Website]({url})"
             }
         },
         footer: {
@@ -289,21 +289,21 @@ module.exports = {
         autoplay: {
             command: {
                 name: "autoplay",
-                description: "Ativar/desativar o autoplay para o servidor"
+                description: "Ativar/desativar reprodução automática para o servidor"
             },
             enabled: {
-                title: "## ✅ Autoplay Ativado",
-                message: "O autoplay foi **ativado** para este servidor.",
-                note: "🎵 O bot reproduzirá automaticamente músicas semelhantes quando a fila terminar."
+                title: "## ✅ Reprodução Automática Ativada",
+                message: "A reprodução automática foi **ativada** para este servidor.",
+                note: "🎵 O bot tocará automaticamente músicas semelhantes quando a fila terminar."
             },
             disabled: {
-                title: "## ❌ Autoplay Desativado",
-                message: "O autoplay foi **desativado** para este servidor.",
-                note: "⏹️ O bot parará de reproduzir quando a fila terminar."
+                title: "## ❌ Reprodução Automática Desativada",
+                message: "A reprodução automática foi **desativada** para este servidor.",
+                note: "⏹️ O bot parará de tocar quando a fila terminar."
             },
             errors: {
                 title: "## ❌ Erro",
-                message: "Ocorreu um erro ao atualizar as configurações de autoplay.\nPor favor, tente novamente mais tarde."
+                message: "Ocorreu um erro ao atualizar as configurações de reprodução automática.\nPor favor, tente novamente mais tarde."
             }
         },
         pause: {
@@ -314,7 +314,7 @@ module.exports = {
             success: {
                 title: "## ⏸️ Música Pausada",
                 message: "A faixa atual foi pausada.",
-                note: "Use `/resume` para continuar reproduzindo."
+                note: "Use `/resume` para continuar tocando."
             },
             errors: {
                 title: "## ❌ Erro",
@@ -329,7 +329,7 @@ module.exports = {
             success: {
                 title: "## ▶️ Música Retomada",
                 message: "A faixa atual foi retomada.",
-                note: "A música está tocando novamente."
+                note: "A música está tocando agora."
             },
             errors: {
                 title: "## ❌ Erro",
@@ -344,7 +344,7 @@ module.exports = {
             success: {
                 title: "## ⏭️ Música Pulada",
                 message: "A faixa atual foi pulada.",
-                nextSong: "Reproduzindo a próxima música da fila...",
+                nextSong: "Tocando a próxima música da fila...",
                 queueEmpty: "A fila está vazia."
             },
             errors: {
@@ -361,7 +361,7 @@ module.exports = {
                 title: "## ⏹️ Música Parada",
                 message24_7: "Música parada. Player mantido ativo (modo 24/7 ativado).",
                 messageNormal: "A música foi parada e o player foi destruído.",
-                note: "Use `/play` para começar a reproduzir música novamente."
+                note: "Use `/play` para começar a tocar música novamente."
             },
             errors: {
                 title: "## ❌ Erro",
@@ -399,7 +399,7 @@ module.exports = {
             queueEmpty: {
                 title: "## ❌ Fila Vazia",
                 message: "A fila está vazia. Não há músicas para embaralhar.",
-                note: "Adicione músicas à fila primeiro usando `/play`."
+                note: "Adicione algumas músicas à fila primeiro usando `/play`."
             },
             success: {
                 title: "## 🔀 Fila Embaralhada",
@@ -414,7 +414,7 @@ module.exports = {
         np: {
             command: {
                 name: "np",
-                description: "Exibe a música que está tocando atualmente com uma barra de progresso"
+                description: "Exibe a música tocando atualmente com uma barra de progresso"
             },
             title: "## 🎵 Tocando Agora",
             nowPlaying: "**[{title}]({uri})**",
@@ -433,9 +433,9 @@ module.exports = {
             titlePaginated: "## 📋 Fila Atual (Página {currentPage}/{totalPages})",
             nowPlaying: "🎵 **Tocando Agora:**",
             track: "[{title}]({uri})",
-            requestedBy: "Pedido por: {requester}",
+            requestedBy: "Solicitado por: {requester}",
             trackNumber: "**{number}.**",
-            noMoreSongs: "Sem mais músicas",
+            noMoreSongs: "Não há mais músicas",
             buttons: {
                 previous: "⬅ Anterior",
                 next: "Próximo ➡"
@@ -453,7 +453,7 @@ module.exports = {
             queueEmpty: {
                 title: "## ❌ Fila Vazia",
                 message: "A fila está vazia. Não há músicas para remover.",
-                note: "Adicione músicas à fila primeiro usando `/play`."
+                note: "Adicione algumas músicas à fila primeiro usando `/play`."
             },
             invalidPosition: {
                 title: "## ❌ Posição Inválida",
@@ -479,7 +479,7 @@ module.exports = {
             queueEmpty: {
                 title: "## ❌ Fila Vazia",
                 message: "A fila está vazia. Não há músicas para mover.",
-                note: "Adicione músicas à fila primeiro usando `/play`."
+                note: "Adicione algumas músicas à fila primeiro usando `/play`."
             },
             invalidPosition: {
                 title: "## ❌ Posição Inválida",
@@ -511,7 +511,7 @@ module.exports = {
             queueEmpty: {
                 title: "## ❌ Fila Vazia",
                 message: "A fila está vazia. Não há músicas para pular.",
-                note: "Adicione músicas à fila primeiro usando `/play`."
+                note: "Adicione algumas músicas à fila primeiro usando `/play`."
             },
             invalidPosition: {
                 title: "## ❌ Posição Inválida",
@@ -519,10 +519,10 @@ module.exports = {
                 note: "A fila tem **{count}** música{plural}."
             },
             success: {
-                title: "## ⏭️ Pulado para a Faixa",
+                title: "## ⏭️ Pulou para a Faixa",
                 track: "**Faixa:** [{title}]({uri})",
                 position: "**Posição:** {position}",
-                message: "Pulado para a faixa especificada na fila."
+                message: "Pulou para a faixa especificada na fila."
             },
             errors: {
                 title: "## ❌ Erro",
@@ -532,12 +532,12 @@ module.exports = {
         seek: {
             command: {
                 name: "seek",
-                description: "Avançar para um tempo específico na faixa atual"
+                description: "Avançar para um momento específico na faixa atual"
             },
             invalidTime: {
                 title: "## ❌ Tempo Inválido",
                 message: "Formato de tempo inválido. Use um dos seguintes:",
-                formats: "• **MM:SS** (ex.: 1:30)\n• **HH:MM:SS** (ex.: 1:05:30)\n• **Segundos** (ex.: 90)",
+                formats: "• **MM:SS** (ex: 1:30)\n• **HH:MM:SS** (ex: 1:05:30)\n• **Segundos** (ex: 90)",
                 trackLength: "**Duração da faixa:** {length}"
             },
             success: {
@@ -578,7 +578,7 @@ module.exports = {
             },
             errors: {
                 title: "## ❌ Erro",
-                message: "Ocorreu um erro ao recuperar informações da faixa.\nPor favor, tente novamente mais tarde."
+                message: "Ocorreu um erro ao recuperar as informações da faixa.\nPor favor, tente novamente mais tarde."
             }
         },
         voteskip: {
@@ -592,17 +592,17 @@ module.exports = {
                 votes: "**Votos atuais:** {current}/{required}"
             },
             success: {
-                title: "## ✅ Voto Adicionado",
-                message: "Seu voto foi adicionado!",
+                title: "## ✅ Voto Registrado",
+                message: "Seu voto foi registrado!",
                 currentVotes: "**Votos atuais:** {current}/{required}",
-                required: "**Necessário:** {required} votos para pular",
-                moreNeeded: "Faltam {count} voto{plural}."
+                required: "**Necessários:** {required} votos para pular",
+                moreNeeded: "Mais {count} voto{plural} necessário(s)."
             },
             skipped: {
                 title: "## ⏭️ Faixa Pulada por Votação",
                 message: "A faixa foi pulada!",
                 votes: "**Votos:** {current}/{required}",
-                required: "**Necessário:** {required} votos"
+                required: "**Necessários:** {required} votos"
             },
             errors: {
                 title: "## ❌ Erro",
@@ -638,32 +638,32 @@ module.exports = {
         play: {
             command: {
                 name: "play",
-                description: "Reproduzir uma música pelo nome ou link"
+                description: "Tocar uma música a partir de um nome ou link"
             },
             lavalinkManagerError: {
-                title: "## ❌ Erro no Lavalink Manager",
-                message: "O gerenciador de nós Lavalink não está inicializado.",
-                note: "Por favor, contate o administrador do bot."
+                title: "## ❌ Erro do Gerenciador Lavalink",
+                message: "O gerenciador de nós Lavalink não foi inicializado.",
+                note: "Por favor, entre em contato com o administrador do bot."
             },
             noNodes: {
                 title: "## ❌ Sem Nós Lavalink",
-                message: "Nenhum nó Lavalink está disponível atualmente ({connected}/{total} conectados).",
-                note: "O bot está tentando reconectar. Por favor, tente novamente em breve."
+                message: "Nenhum nó Lavalink está disponível no momento ({connected}/{total} conectados).",
+                note: "O bot está tentando reconectar. Por favor, tente novamente em instantes."
             },
             spotifyError: {
-                title: "## ❌ Erro no Spotify",
+                title: "## ❌ Erro do Spotify",
                 message: "Falha ao buscar dados do Spotify.",
                 note: "Por favor, verifique o link e tente novamente."
             },
             invalidResponse: {
                 title: "## ❌ Resposta Inválida",
                 message: "Resposta inválida da fonte de música.",
-                note: "Por favor, tente novamente ou use uma consulta diferente."
+                note: "Por favor, tente novamente ou use uma pesquisa diferente."
             },
             noResults: {
                 title: "## ❌ Sem Resultados",
-                message: "Nenhum resultado encontrado para sua busca.",
-                note: "Tente um termo de pesquisa ou link diferente."
+                message: "Nenhum resultado encontrado para sua pesquisa.",
+                note: "Tente um termo de busca ou link diferente."
             },
             success: {
                 titleTrack: "## ✅ Faixa Adicionada",
@@ -684,19 +684,19 @@ module.exports = {
                 description: "Pesquisar uma música e selecionar dos resultados"
             },
             lavalinkManagerError: {
-                title: "## ❌ Erro no Lavalink Manager",
-                message: "O gerenciador de nós Lavalink não está inicializado.",
-                note: "Por favor, contate o administrador do bot."
+                title: "## ❌ Erro do Gerenciador Lavalink",
+                message: "O gerenciador de nós Lavalink não foi inicializado.",
+                note: "Por favor, entre em contato com o administrador do bot."
             },
             noNodes: {
                 title: "## ❌ Sem Nós Lavalink",
-                message: "Nenhum nó Lavalink está disponível atualmente ({connected}/{total} conectados).",
-                note: "O bot está tentando reconectar. Por favor, tente novamente em breve."
+                message: "Nenhum nó Lavalink está disponível no momento ({connected}/{total} conectados).",
+                note: "O bot está tentando reconectar. Por favor, tente novamente em instantes."
             },
             noResults: {
                 title: "## ❌ Sem Resultados",
                 message: "Nenhum resultado encontrado para sua pesquisa.",
-                note: "Tente um termo de pesquisa diferente."
+                note: "Tente um termo de busca diferente."
             },
             playlistNotSupported: {
                 title: "## ❌ Playlists Não Suportadas",
@@ -760,7 +760,7 @@ module.exports = {
                 title: "## ✅ Música Adicionada",
                 song: "**Música:** {song}",
                 playlist: "**Playlist:** {playlist}",
-                message: "A música foi adicionada com sucesso à sua playlist!"
+                message: "A música foi adicionada à sua playlist com sucesso!"
             },
             errors: {
                 title: "## ❌ Erro",
@@ -770,7 +770,7 @@ module.exports = {
         deleteplaylist: {
             command: {
                 name: "deleteplaylist",
-                description: "Deletar uma playlist"
+                description: "Excluir uma playlist"
             },
             notFound: {
                 title: "## ❌ Playlist Não Encontrada",
@@ -779,22 +779,22 @@ module.exports = {
             },
             accessDenied: {
                 title: "## 🔒 Acesso Negado",
-                message: "Você não tem permissão para deletar esta playlist.",
-                note: "Apenas o dono da playlist pode deletá-la."
+                message: "Você não tem permissão para excluir esta playlist.",
+                note: "Apenas o dono da playlist pode excluí-la."
             },
             success: {
-                title: "## ✅ Playlist Deletada",
-                message: "A playlist **\"{name}\"** foi deletada com sucesso."
+                title: "## ✅ Playlist Excluída",
+                message: "A playlist **\"{name}\"** foi excluída com sucesso."
             },
             errors: {
                 title: "## ❌ Erro",
-                message: "Ocorreu um erro ao deletar a playlist.\nPor favor, tente novamente mais tarde."
+                message: "Ocorreu um erro ao excluir a playlist.\nPor favor, tente novamente mais tarde."
             }
         },
         deletesong: {
             command: {
                 name: "deletesong",
-                description: "Deletar uma música de uma playlist"
+                description: "Excluir uma música de uma playlist"
             },
             notFound: {
                 title: "## ❌ Playlist Não Encontrada",
@@ -802,14 +802,14 @@ module.exports = {
                 note: "Por favor, verifique o nome da playlist e tente novamente."
             },
             success: {
-                title: "## ✅ Música Deletada",
+                title: "## ✅ Música Excluída",
                 song: "**Música:** {song}",
                 playlist: "**Playlist:** {playlist}",
-                message: "A música foi removida com sucesso da sua playlist."
+                message: "A música foi removida da sua playlist com sucesso."
             },
             errors: {
                 title: "## ❌ Erro",
-                message: "Ocorreu um erro ao deletar a música.\nPor favor, tente novamente mais tarde."
+                message: "Ocorreu um erro ao excluir a música.\nPor favor, tente novamente mais tarde."
             }
         },
         savequeue: {
@@ -820,11 +820,11 @@ module.exports = {
             queueEmpty: {
                 title: "## ❌ Fila Vazia",
                 message: "A fila está vazia. Nada para salvar.",
-                note: "Adicione músicas à fila primeiro!"
+                note: "Adicione algumas músicas à fila primeiro!"
             },
             alreadyExists: {
                 title: "## ❌ Playlist Já Existe",
-                message: "Uma playlist chamada **\"{name}\"** já existe.",
+                message: "Uma playlist com o nome **\"{name}\"** já existe.",
                 note: "Por favor, escolha um nome diferente."
             },
             success: {
@@ -885,7 +885,7 @@ module.exports = {
             },
             accessDenied: {
                 title: "## 🔒 Acesso Negado",
-                message: "Você não tem permissão para ver esta playlist.",
+                message: "Você não tem permissão para visualizar esta playlist.",
                 note: "Esta playlist é privada e apenas o dono pode visualizá-la."
             },
             empty: {
@@ -895,13 +895,13 @@ module.exports = {
             title: "## 🎵 Músicas em \"{name}\" (Página {currentPage}/{totalPages})",
             errors: {
                 title: "## ❌ Erro",
-                message: "Ocorreu um erro ao exibir as músicas da playlist.\nPor favor, tente novamente mais tarde."
+                message: "Ocorreu um erro ao mostrar as músicas da playlist.\nPor favor, tente novamente mais tarde."
             }
         },
         playcustomplaylist: {
             command: {
                 name: "playcustomplaylist",
-                description: "Reproduzir uma playlist personalizada"
+                description: "Tocar uma playlist personalizada"
             },
             notFound: {
                 title: "## ❌ Playlist Não Encontrada",
@@ -910,23 +910,23 @@ module.exports = {
             },
             accessDenied: {
                 title: "## 🔒 Acesso Negado",
-                message: "Você não tem permissão para reproduzir esta playlist.",
-                note: "Esta playlist é privada e apenas o dono pode reproduzi-la."
+                message: "Você não tem permissão para tocar esta playlist.",
+                note: "Esta playlist é privada e apenas o dono pode tocá-la."
             },
             empty: {
                 title: "## ❌ Playlist Vazia",
                 message: "A playlist **\"{name}\"** está vazia.",
-                note: "Adicione músicas à playlist primeiro!"
+                note: "Adicione algumas músicas à playlist primeiro!"
             },
             lavalinkManagerError: {
-                title: "## ❌ Erro no Lavalink Manager",
-                message: "O gerenciador de nós Lavalink não está inicializado.",
-                note: "Por favor, contate o administrador do bot."
+                title: "## ❌ Erro do Gerenciador Lavalink",
+                message: "O gerenciador de nós Lavalink não foi inicializado.",
+                note: "Por favor, entre em contato com o administrador do bot."
             },
             noNodes: {
                 title: "## ❌ Sem Nós Lavalink",
-                message: "Nenhum nó Lavalink está disponível atualmente ({connected}/{total} conectados).",
-                note: "O bot está tentando reconectar. Por favor, tente novamente em breve."
+                message: "Nenhum nó Lavalink está disponível no momento ({connected}/{total} conectados).",
+                note: "O bot está tentando reconectar. Por favor, tente novamente em instantes."
             },
             resolveError: {
                 title: "## ❌ Erro ao Resolver Música",
@@ -934,13 +934,13 @@ module.exports = {
                 note: "Por favor, verifique a playlist e tente novamente."
             },
             success: {
-                title: "## 🎵 Reproduzindo Playlist",
-                message: "Reproduzindo playlist **\"{name}\"**",
+                title: "## 🎵 Tocando Playlist",
+                message: "Tocando playlist **\"{name}\"**",
                 songs: "**Músicas:** {count}"
             },
             errors: {
                 title: "## ❌ Erro",
-                message: "Ocorreu um erro ao reproduzir a playlist.\nPor favor, tente novamente mais tarde."
+                message: "Ocorreu um erro ao tocar a playlist.\nPor favor, tente novamente mais tarde."
             }
         }
     },
@@ -948,7 +948,7 @@ module.exports = {
         twentyfourseven: {
             command: {
                 name: "247",
-                description: "Ativar/desativar o modo 24/7 (manter o bot no canal de voz)"
+                description: "Ativar/desativar modo 24/7 (manter o bot no canal de voz)"
             },
             accessDenied: {
                 title: "## ❌ Acesso Negado",
@@ -973,16 +973,16 @@ module.exports = {
         history: {
             command: {
                 name: "history",
-                description: "Mostrar as faixas reproduzidas recentemente"
+                description: "Mostrar faixas tocadas recentemente"
             },
             noHistory: {
                 title: "## 📜 Nenhum Histórico Encontrado",
                 message: "Nenhum histórico de reprodução encontrado para este servidor.",
-                note: "Reproduza algumas músicas para criar seu histórico!"
+                note: "Toque algumas músicas para construir seu histórico!"
             },
             title: "## 📜 Histórico de Reprodução",
             titlePaginated: "## 📜 Histórico de Reprodução (Página {currentPage}/{totalPages})",
-            noMoreSongs: "- Sem mais músicas no histórico.",
+            noMoreSongs: "- Não há mais músicas no histórico.",
             buttons: {
                 previous: "⬅ Anterior",
                 next: "Próximo ➡"
@@ -1013,7 +1013,7 @@ module.exports = {
             },
             wrongChannel: {
                 title: "## 🎵 Entre no Canal de Voz",
-                message: "O bot está ativo em **{channelName}** no momento.",
+                message: "O bot está atualmente ativo em **{channelName}**.",
                 note: "Por favor, entre em **{channelName}** para usar os comandos de música."
             }
         },
@@ -1021,17 +1021,17 @@ module.exports = {
             queueEmpty: {
                 title: "## ❌ Fila Vazia",
                 message: "A fila está vazia. Não há músicas disponíveis.",
-                note: "Adicione músicas à fila primeiro usando `/play`."
+                note: "Adicione algumas músicas à fila primeiro usando `/play`."
             },
             noSongPlaying: {
                 title: "## ❌ Nenhuma Música Tocando",
                 message: "Nenhuma música está tocando no momento.",
-                note: "Use `/play` para começar a reproduzir música."
+                note: "Use `/play` para começar a tocar música."
             },
             noMusicPlaying: {
                 title: "## ❌ Sem Música Tocando",
                 message: "Não há música tocando no momento e a fila está vazia.",
-                note: "Use `/play` para começar a reproduzir música."
+                note: "Use `/play` para começar a tocar música."
             }
         },
         responseHandler: {
@@ -1054,21 +1054,21 @@ module.exports = {
             commandsLoaded: "Total de Comandos Carregados: {count}",
             commandLoadFailed: "Falha ao carregar: {name} - Propriedade data ou run ausente",
             commandLoadError: "Erro ao carregar {name}: {message}",
-            tokenVerification: "🔐 VERIFICAÇÃO DE TOKEN",
+            tokenVerification: "🔐 VERIFICAÇÃO DO TOKEN",
             tokenAuthFailed: "Autenticação Falhou ❌",
-            tokenError: "Erro: Ative os Intents ou Redefina um Novo Token",
+            tokenError: "Erro: Ative as Intents ou Redefina o Token",
             databaseOnline: "MongoDB Online ✅",
             databaseStatus: "🕸️  STATUS DO BANCO DE DADOS",
-            databaseConnection: "🕸️  CONEXÃO COM BANCO DE DADOS",
+            databaseConnection: "🕸️  CONEXÃO DO BANCO DE DADOS",
             databaseFailed: "Conexão Falhou ❌",
             databaseError: "Erro: {message}",
             unhandledRejection: "Rejeição Não Tratada:",
             uncaughtException: "Exceção Não Capturada:",
-            riffyThumbnailError: "[ Riffy ] Ignorando erro de miniatura: {message}"
+            riffyThumbnailError: "[ Riffy ] Ignorando erro de thumbnail: {message}"
         },
         events: {
             rest: {
-                commandsRegistered: "Registrados com sucesso {count} comandos de aplicativo (/) globalmente ✅",
+                commandsRegistered: "Registrados com sucesso {count} comandos de aplicação (/) globalmente ✅",
                 commandsFailed: "Falha ao registrar comandos ❌",
                 error: "Erro: {message}",
                 details: "Detalhes: {details}"
@@ -1076,15 +1076,15 @@ module.exports = {
             interaction: {
                 commandNotFound: "Comando não encontrado: {commandName}",
                 errorExecuting: "Erro ao executar o comando {commandName}:",
-                errorHelpButton: "Erro ao tratar o botão de voltar do help:",
-                errorHelpSelect: "Erro ao tratar a seleção de categoria do help:",
+                errorHelpButton: "Erro ao lidar com o botão de voltar da ajuda:",
+                errorHelpSelect: "Erro ao lidar com a seleção de categoria da ajuda:",
                 unexpectedError: "Erro inesperado:",
                 failedToSendError: "Falha ao enviar mensagem de erro:"
             }
         },
         mongodb: {
-            uriNotDefined: "O URI do MongoDB não está definido na configuração.",
-            skippingConnection: "Pulando a conexão com o MongoDB pois o URI não foi fornecido.",
+            uriNotDefined: "A URI do MongoDB não está definida na configuração.",
+            skippingConnection: "Pulando conexão com MongoDB pois a URI não foi fornecida.",
             connected: "Conectado ao MongoDB ✅",
             connectionFailed: "Não foi possível conectar ao MongoDB. Continuando sem funcionalidade de banco de dados."
         },
@@ -1092,31 +1092,31 @@ module.exports = {
             nodesConfigured: "Nós configurados: {count}",
             riffyInitialized: "Inicializado com {count} nó(s)",
             nodeKeys: "Chaves dos nós:",
-            failedToInitialize: "Falha ao inicializar o Riffy: {message}",
+            failedToInitialize: "Falha ao inicializar Riffy: {message}",
             riffyReinitialized: "Riffy reinicializado",
-            failedToReinitialize: "Falha ao reinicializar o Riffy: {message}",
+            failedToReinitialize: "Falha ao reinicializar Riffy: {message}",
             nodeConnected: "Conectado: {name} ({host}:{port}) • {available}/{total} ativos",
             nodeDisconnected: "Desconectado: {name} ({host}:{port}) • {available}/{total} ativos",
             retryLimitReported: "Limite de tentativas reportado por {name}; loop de reconexão continua",
             nodeError: "Erro: {name} ({host}:{port}) • {message}",
             nodeStatus: "{available}/{total} ativos",
-            waitingForConnection: "Aguardando conexão com o nó Lavalink...",
-            nodeAvailable: "Nó disponível ({count} conectado(s))",
+            waitingForConnection: "Aguardando conexão do nó Lavalink...",
+            nodeAvailable: "Nó disponível ({count} conectados)",
             noNodesConnected: "Nenhum nó conectado ({connected}/{total}) — tentando reconectar...",
             nodeStatusReport: "Status dos Nós: {connected}/{total} conectados"
         },
         player: {
             lacksPermissions: "O bot não tem as permissões necessárias para enviar mensagens neste canal.",
             errorSendingMessage: "Erro ao enviar mensagem: {message}",
-            trackException: "Exceção de Faixa para o servidor {guildId}: {message}",
-            trackStuck: "Faixa Travada para o servidor {guildId}: {message}",
-            trackNull: "Faixa é nula ou faltam informações para o servidor {guildId} - ignorando evento",
-            playerInvalid: "Player inválido ou destruído para o servidor {guildId} - ignorando evento",
-            channelNotFound: "Canal não encontrado para o servidor {guildId}",
+            trackException: "Exceção de Faixa para guild {guildId}: {message}",
+            trackStuck: "Faixa Travada para guild {guildId}: {message}",
+            trackNull: "Faixa nula ou sem informações para guild {guildId} - ignorando evento",
+            playerInvalid: "Player inválido ou destruído para guild {guildId} - ignorando evento",
+            channelNotFound: "Canal não encontrado para guild {guildId}",
             errorSavingHistory: "Erro ao salvar no histórico:",
-            errorMusicCard: "Erro ao criar ou enviar cartão de música: {message}",
-            autoplayDisabled: "Autoplay está desativado para o servidor: {guildId}",
-            errorQueueEnd: "Erro ao tratar o fim da fila:",
+            errorMusicCard: "Erro ao criar ou enviar card de música: {message}",
+            autoplayDisabled: "Reprodução automática desativada para guild: {guildId}",
+            errorQueueEnd: "Erro ao lidar com fim da fila:",
             errorCleanupPrevious: "Erro ao limpar mensagem da faixa anterior:",
             errorCleanupTrack: "Erro ao limpar mensagem da faixa:",
             lyricsFetchError: "❌ Erro ao buscar letras: {message}",
@@ -1130,12 +1130,12 @@ module.exports = {
                 skipping: "Pulando para a próxima música..."
             },
             unableToLoadCard: {
-                title: "## ⚠️ Não Foi Possível Carregar o Cartão da Faixa",
-                message: "Não foi possível carregar o cartão da faixa. Continuando a reprodução..."
+                title: "## ⚠️ Não Foi Possível Carregar o Card da Faixa",
+                message: "Não foi possível carregar o card da faixa. Continuando a reprodução..."
             },
             queueEnd: {
-                noMoreAutoplay: "⚠️ **Sem mais faixas para o autoplay. Desconectando...**",
-                queueEndedAutoplayDisabled: "🎶 **A fila terminou. O autoplay está desativado.**",
+                noMoreAutoplay: "⚠️ **Não há mais faixas para reprodução automática. Desconectando...**",
+                queueEndedAutoplayDisabled: "🎶 **A fila terminou. A reprodução automática está desativada.**",
                 queueEmpty: "👾 **Fila Vazia! Desconectando...**",
                 twentyfoursevenEmpty: "🔄 **Modo 24/7: O bot permanecerá no canal de voz. A fila está vazia.**"
             },
@@ -1149,7 +1149,7 @@ module.exports = {
                 playbackStopped: "⏹️ **A reprodução foi parada e o player foi destruído!**",
                 alreadyPaused: "⏸️ **A reprodução já está pausada!**",
                 playbackPaused: "⏸️ **A reprodução foi pausada!**",
-                alreadyResumed: "▶️ **A reprodução já está em curso!**",
+                alreadyResumed: "▶️ **A reprodução já está em andamento!**",
                 playbackResumed: "▶️ **A reprodução foi retomada!**",
                 volumeMax: "🔊 **O volume já está no máximo!**",
                 volumeMin: "🔉 **O volume já está no mínimo!**",
@@ -1166,13 +1166,13 @@ module.exports = {
                 fullTitle: "## 🎵 Letra Completa: {title}",
                 stopButton: "Parar Letra",
                 fullButton: "Letra Completa",
-                deleteButton: "Deletar"
+                deleteButton: "Excluir"
             },
             trackInfo: {
                 title: "**Título:**",
                 author: "**Autor:**",
                 length: "**Duração:**",
-                requester: "**Solicitante:**",
+                requester: "**Solicitado por:**",
                 source: "**Fonte:**",
                 progress: "**Progresso:**",
                 unknownArtist: "Artista Desconhecido",
