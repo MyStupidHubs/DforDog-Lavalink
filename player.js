@@ -77,7 +77,7 @@ async function initializePlayer(client) {
     client.riffy.on("nodeConnect", node => {
         console.log(`${colors.cyan}[ LAVALINK ]${colors.reset} ${colors.green}Node ${node.name} Connected ✅${colors.reset}`);
         client.user.setPresence({
-            activities: [{ name: "DJ for Dog: 🟢" }],
+            activities: [{ name: `${config.activityName} | DJ for Dog: 🟢` }],
             status: "online"
         });
 
