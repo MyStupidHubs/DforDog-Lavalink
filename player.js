@@ -76,10 +76,6 @@ async function initializePlayer(client) {
 
     client.riffy.on("nodeConnect", node => {
         console.log(`${colors.cyan}[ LAVALINK ]${colors.reset} ${colors.green}Node ${node.name} Connected ✅${colors.reset}`);
-        client.user.setPresence({
-            activities: [{ name: `${config.activityName} | DJ for Dog: 🟢` }],
-            status: "online"
-        });
 
         const channel = client.channels.cache.get("1474712195127316530");
         if (channel) channel.setName("DJ for Dog: 🟢").catch(console.error);
@@ -87,10 +83,6 @@ async function initializePlayer(client) {
 
     client.riffy.on("nodeError", (node, error) => {
         console.log(`${colors.cyan}[ LAVALINK ]${colors.reset} ${colors.red}Node ${node.name} Error ❌ | ${error.message}${colors.reset}`);
-        client.user.setPresence({
-            activities: [{ name: "DJ for Dog: 🔴" }],
-            status: "dnd"
-        });
 
         const channel = client.channels.cache.get("1474712195127316530");
         if (channel) channel.setName("DJ for Dog: 🔴").catch(console.error);
@@ -98,10 +90,6 @@ async function initializePlayer(client) {
 
     client.riffy.on("nodeDisconnect", (node) => {
         console.log(`${colors.cyan}[ LAVALINK ]${colors.reset} ${colors.red}Node ${node.name} Disconnected ❌${colors.reset}`);
-        client.user.setPresence({
-            activities: [{ name: "DJ for Dog: 🔴" }],
-            status: "dnd"
-        });
 
         const channel = client.channels.cache.get("1474712195127316530");
         if (channel) channel.setName("DJ for Dog: 🔴").catch(console.error);
