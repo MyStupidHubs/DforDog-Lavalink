@@ -22,10 +22,10 @@ module.exports = {
   errorLog: "", 
   nodes: [
      {
-    name: "GlaceYT",
-    password: "glace",
-    host: "ge-02.vortexa.cloud",
-    port: 11050,
+    name: "DJForDog",
+    password: "UHrg5iqJVE0",
+    host: "168.222.251.98",
+    port: 5380,
     secure: false
     }
   ]
