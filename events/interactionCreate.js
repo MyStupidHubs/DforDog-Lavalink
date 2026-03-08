@@ -8,22 +8,24 @@ module.exports = async (client, interaction) => {
   try {
 
     if (interaction.type === InteractionType.ApplicationCommand) {
-    if (!interaction?.guild) {
-        const lang = getLang(interaction.guildId);
+
+      // CORRIGIDO: await no getLang para não fazer reply com Promise não resolvida
+      if (!interaction?.guild) {
+        const lang = await getLang(interaction.guildId).catch(() => getLangSync());
         return interaction?.reply({ 
-          content: lang.events.interactionCreate.noGuild, 
+          content: lang.events?.interactionCreate?.noGuild || 'This command can only be used in a server.', 
           ephemeral: true 
         });
-    }
+      }
 
-      const lang = getLang(interaction.guildId);
+      const lang = await getLang(interaction.guildId).catch(() => getLangSync());
       const command = client.commands.get(interaction.commandName);
 
       if (!command) {
         const consoleLang = getLangSync();
         console.error(`${colors.cyan}[ INTERACTION ]${colors.reset} ${colors.red}${consoleLang.console?.events?.interaction?.commandNotFound?.replace('{commandName}', interaction.commandName) || `Command not found: ${interaction.commandName}`}${colors.reset}`);
         return interaction?.reply({ 
-          content: lang.events.interactionCreate.commandNotFound, 
+          content: lang.events?.interactionCreate?.commandNotFound || 'Command not found.', 
           ephemeral: true 
         });
       }
@@ -31,19 +33,18 @@ module.exports = async (client, interaction) => {
       const requiredPermissions = command.permissions || "0x0000000000000800";
       if (!interaction?.member?.permissions?.has(requiredPermissions)) {
         return interaction?.reply({ 
-          content: lang.events.interactionCreate.noPermission, 
+          content: lang.events?.interactionCreate?.noPermission || 'You do not have permission to use this command.', 
           ephemeral: true 
         });
       }
 
-  
       try {
         await command.run(client, interaction);
       } catch (error) {
         const consoleLang = getLangSync();
         console.error(`${colors.cyan}[ INTERACTION ]${colors.reset} ${colors.red}${consoleLang.console?.events?.interaction?.errorExecuting?.replace('{commandName}', interaction.commandName) || `Error executing command ${interaction.commandName}:`}${colors.reset}`, error);
         
-        const errorMessage = lang.events.interactionCreate.errorOccurred.replace('{message}', error.message);
+        const errorMessage = lang.events?.interactionCreate?.errorOccurred?.replace('{message}', error.message) || `An error occurred: ${error.message}`;
         
         if (interaction.replied || interaction.deferred) {
           await interaction.followUp({ 
@@ -59,11 +60,10 @@ module.exports = async (client, interaction) => {
       }
     }
 
-   
     if (interaction.isButton()) {
 
       if (interaction.customId === 'help_back_main') {
-              try {
+        try {
           await interaction.deferUpdate();
           const helpCommand = client.commands.get('help');
           if (helpCommand && helpCommand.helpers) {
@@ -86,24 +86,22 @@ module.exports = async (client, interaction) => {
         } catch (error) {
           const consoleLang = getLangSync();
           console.error(consoleLang.console?.events?.interaction?.errorHelpButton || 'Error handling help back button:', error);
-          const lang = getLang(interaction.guildId);
+          const lang = await getLang(interaction.guildId).catch(() => getLangSync());
           try {
             if (!interaction.replied && !interaction.deferred) {
-              await interaction.reply({ content: lang.events.interactionCreate.errorTryAgain, ephemeral: true });
-                } else {
-              await interaction.followUp({ content: lang.events.interactionCreate.errorTryAgain, ephemeral: true });
-                }
+              await interaction.reply({ content: lang.events?.interactionCreate?.errorTryAgain || 'An error occurred. Please try again.', ephemeral: true });
+            } else {
+              await interaction.followUp({ content: lang.events?.interactionCreate?.errorTryAgain || 'An error occurred. Please try again.', ephemeral: true });
+            }
           } catch (e) {}
         }
         return;
       }
-      
 
     }
 
-  
     if (interaction.isStringSelectMenu()) {
-  
+
       if (interaction.customId === 'help_category_select') {
         try {
           await interaction.deferUpdate();
@@ -119,13 +117,13 @@ module.exports = async (client, interaction) => {
         } catch (error) {
           const consoleLang = getLangSync();
           console.error(consoleLang.console?.events?.interaction?.errorHelpSelect || 'Error handling help category select:', error);
-          const lang = getLang(interaction.guildId);
+          const lang = await getLang(interaction.guildId).catch(() => getLangSync());
           try {
             if (!interaction.replied && !interaction.deferred) {
-              await interaction.reply({ content: lang.events.interactionCreate.errorTryAgain, ephemeral: true });
+              await interaction.reply({ content: lang.events?.interactionCreate?.errorTryAgain || 'An error occurred. Please try again.', ephemeral: true });
             } else {
-              await interaction.followUp({ content: lang.events.interactionCreate.errorTryAgain, ephemeral: true });
-              }
+              await interaction.followUp({ content: lang.events?.interactionCreate?.errorTryAgain || 'An error occurred. Please try again.', ephemeral: true });
+            }
           } catch (e) {}
         }
         return;
@@ -136,16 +134,16 @@ module.exports = async (client, interaction) => {
     const consoleLang = getLangSync();
     console.error(`${colors.cyan}[ INTERACTION ]${colors.reset} ${colors.red}${consoleLang.console?.events?.interaction?.unexpectedError || 'Unexpected error:'}${colors.reset}`, error);
     
-    const lang = getLang(interaction.guildId);
+    const lang = await getLang(interaction.guildId).catch(() => getLangSync());
     try {
       if (interaction.replied || interaction.deferred) {
         await interaction.followUp({ 
-          content: lang.events.interactionCreate.unexpectedError, 
+          content: lang.events?.interactionCreate?.unexpectedError || 'An unexpected error occurred.', 
           ephemeral: true 
         }).catch(() => {});
       } else {
         await interaction.reply({ 
-          content: lang.events.interactionCreate.unexpectedError, 
+          content: lang.events?.interactionCreate?.unexpectedError || 'An unexpected error occurred.', 
           ephemeral: true 
         }).catch(() => {});
       }
