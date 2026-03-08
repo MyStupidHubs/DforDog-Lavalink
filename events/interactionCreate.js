@@ -9,7 +9,6 @@ module.exports = async (client, interaction) => {
 
     if (interaction.type === InteractionType.ApplicationCommand) {
 
-      // CORRIGIDO: await no getLang para não fazer reply com Promise não resolvida
       if (!interaction?.guild) {
         const lang = await getLang(interaction.guildId).catch(() => getLangSync());
         return interaction?.reply({ 
@@ -18,12 +17,12 @@ module.exports = async (client, interaction) => {
         });
       }
 
-      const lang = await getLang(interaction.guildId).catch(() => getLangSync());
       const command = client.commands.get(interaction.commandName);
 
       if (!command) {
         const consoleLang = getLangSync();
         console.error(`${colors.cyan}[ INTERACTION ]${colors.reset} ${colors.red}${consoleLang.console?.events?.interaction?.commandNotFound?.replace('{commandName}', interaction.commandName) || `Command not found: ${interaction.commandName}`}${colors.reset}`);
+        const lang = getLangSync();
         return interaction?.reply({ 
           content: lang.events?.interactionCreate?.commandNotFound || 'Command not found.', 
           ephemeral: true 
@@ -32,18 +31,22 @@ module.exports = async (client, interaction) => {
 
       const requiredPermissions = command.permissions || "0x0000000000000800";
       if (!interaction?.member?.permissions?.has(requiredPermissions)) {
+        const lang = getLangSync();
         return interaction?.reply({ 
           content: lang.events?.interactionCreate?.noPermission || 'You do not have permission to use this command.', 
           ephemeral: true 
         });
       }
 
+      // CORRIGIDO: sem await getLang antes de rodar o comando
+      // O comando deve fazer deferReply imediatamente dentro dos 3 segundos
       try {
         await command.run(client, interaction);
       } catch (error) {
         const consoleLang = getLangSync();
         console.error(`${colors.cyan}[ INTERACTION ]${colors.reset} ${colors.red}${consoleLang.console?.events?.interaction?.errorExecuting?.replace('{commandName}', interaction.commandName) || `Error executing command ${interaction.commandName}:`}${colors.reset}`, error);
         
+        const lang = getLangSync();
         const errorMessage = lang.events?.interactionCreate?.errorOccurred?.replace('{message}', error.message) || `An error occurred: ${error.message}`;
         
         if (interaction.replied || interaction.deferred) {
@@ -86,7 +89,7 @@ module.exports = async (client, interaction) => {
         } catch (error) {
           const consoleLang = getLangSync();
           console.error(consoleLang.console?.events?.interaction?.errorHelpButton || 'Error handling help back button:', error);
-          const lang = await getLang(interaction.guildId).catch(() => getLangSync());
+          const lang = getLangSync();
           try {
             if (!interaction.replied && !interaction.deferred) {
               await interaction.reply({ content: lang.events?.interactionCreate?.errorTryAgain || 'An error occurred. Please try again.', ephemeral: true });
@@ -117,7 +120,7 @@ module.exports = async (client, interaction) => {
         } catch (error) {
           const consoleLang = getLangSync();
           console.error(consoleLang.console?.events?.interaction?.errorHelpSelect || 'Error handling help category select:', error);
-          const lang = await getLang(interaction.guildId).catch(() => getLangSync());
+          const lang = getLangSync();
           try {
             if (!interaction.replied && !interaction.deferred) {
               await interaction.reply({ content: lang.events?.interactionCreate?.errorTryAgain || 'An error occurred. Please try again.', ephemeral: true });
@@ -134,7 +137,7 @@ module.exports = async (client, interaction) => {
     const consoleLang = getLangSync();
     console.error(`${colors.cyan}[ INTERACTION ]${colors.reset} ${colors.red}${consoleLang.console?.events?.interaction?.unexpectedError || 'Unexpected error:'}${colors.reset}`, error);
     
-    const lang = await getLang(interaction.guildId).catch(() => getLangSync());
+    const lang = getLangSync();
     try {
       if (interaction.replied || interaction.deferred) {
         await interaction.followUp({ 
