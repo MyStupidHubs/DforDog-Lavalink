@@ -14,11 +14,11 @@ module.exports = {
   activityType: "LISTENING",  // Available activity types : LISTENING , PLAYING
   SupportServer: "https://discord.gg/xQF9f9yUEM",
   embedTimeout: 5,
-  showProgressBar: true,  // Show progress bar in track embed
-  showVisualizer: true,  // Show visualizer on music card (disabled for low-memory optimization)
+  showProgressBar: false,  // Show progress bar in track embed
+  showVisualizer: false,  // Show visualizer on music card (disabled for low-memory optimization)
   generateSongCard: true,  // custom song card image, if false uses thumbnail
   // Performance optimizations for low-memory environments (512MB RAM)
-  lowMemoryMode: false,  // Enable optimizations for low-memory hosting
+  lowMemoryMode: true,  // Enable optimizations for low-memory hosting
   errorLog: "", 
   nodes: [
      {
