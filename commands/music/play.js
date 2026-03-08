@@ -56,12 +56,17 @@ module.exports = {
     data: data,
     run: async (client, interaction) => {
         try {
-            const lang = await getLang(interaction.guildId);
-            const t = lang.music.play;
+            // CORRIGIDO: deferReply é a primeira coisa a ser feita
+            // O Discord exige resposta em até 3 segundos, então nada pode vir antes disso
+            await interaction.deferReply();
+
+            // getLang em paralelo com a leitura da query para não perder tempo
+            const [lang] = await Promise.all([
+                getLang(interaction.guildId).catch(() => ({ music: { play: {} } }))
+            ]);
+            const t = lang.music?.play || {};
 
             const query = interaction.options.getString('name');
-
-            await interaction.deferReply();
 
             const existingPlayer = client.riffy.players.get(interaction.guildId);
             const voiceCheck = await checkVC(interaction, existingPlayer);
@@ -75,9 +80,9 @@ module.exports = {
             if (!nodeManager) {
                 return sendErrorResponse(
                     interaction,
-                    t.lavalinkManagerError.title + '\n\n' +
-                    t.lavalinkManagerError.message + '\n' +
-                    t.lavalinkManagerError.note,
+                    (t.lavalinkManagerError?.title || '## ❌ Node Error') + '\n\n' +
+                    (t.lavalinkManagerError?.message || 'Lavalink manager not available.') + '\n' +
+                    (t.lavalinkManagerError?.note || 'Please try again later.'),
                     5000
                 );
             }
@@ -89,11 +94,11 @@ module.exports = {
                 const totalCount = nodeManager.getTotalNodeCount();
                 return sendErrorResponse(
                     interaction,
-                    t.noNodes.title + '\n\n' +
-                    t.noNodes.message
+                    (t.noNodes?.title || '## ❌ No Nodes') + '\n\n' +
+                    (t.noNodes?.message || 'No nodes available ({connected}/{total}).')
                         .replace('{connected}', nodeCount)
                         .replace('{total}', totalCount) + '\n' +
-                    t.noNodes.note,
+                    (t.noNodes?.note || 'Please try again later.'),
                     5000
                 );
             }
@@ -123,6 +128,7 @@ module.exports = {
             await nodeManager.checkAllNodesHealth().catch(() => {});
             await nodeManager.forceConnectAllNodes().catch(() => {});
             await new Promise(res => setTimeout(res, 400));
+
             let player;
             let attempts = 0;
             const maxAttempts = 3;
@@ -179,9 +185,9 @@ module.exports = {
                     console.error('Error fetching Spotify data:', err);
                     return sendErrorResponse(
                         interaction,
-                        t.spotifyError.title + '\n\n' +
-                        t.spotifyError.message + '\n' +
-                        t.spotifyError.note,
+                        (t.spotifyError?.title || '## ❌ Spotify Error') + '\n\n' +
+                        (t.spotifyError?.message || 'Failed to fetch Spotify data.') + '\n' +
+                        (t.spotifyError?.note || 'Please try again later.'),
                         5000
                     );
                 }
@@ -203,9 +209,9 @@ module.exports = {
                 if (!resolve || typeof resolve !== 'object' || !Array.isArray(resolve.tracks)) {
                     return sendErrorResponse(
                         interaction,
-                        t.invalidResponse.title + '\n\n' +
-                        t.invalidResponse.message + '\n' +
-                        t.invalidResponse.note,
+                        (t.invalidResponse?.title || '## ❌ Invalid Response') + '\n\n' +
+                        (t.invalidResponse?.message || 'Received an invalid response from the server.') + '\n' +
+                        (t.invalidResponse?.note || 'Please try again later.'),
                         5000
                     );
                 }
@@ -225,9 +231,9 @@ module.exports = {
                 } else {
                     return sendErrorResponse(
                         interaction,
-                        t.noResults.title + '\n\n' +
-                        t.noResults.message + '\n' +
-                        t.noResults.note,
+                        (t.noResults?.title || '## ❌ No Results') + '\n\n' +
+                        (t.noResults?.message || 'No results found for your query.') + '\n' +
+                        (t.noResults?.note || 'Try a different search term.'),
                         5000
                     );
                 }
@@ -268,18 +274,21 @@ module.exports = {
                 .setAccentColor(embedColor)
                 .addTextDisplayComponents(
                     (textDisplay) => textDisplay.setContent(
-                        (isPlaylist ? t.success.titlePlaylist : t.success.titleTrack) + '\n\n' +
+                        (isPlaylist
+                            ? (t.success?.titlePlaylist || '## ✅ Playlist Added')
+                            : (t.success?.titleTrack || '## ✅ Track Added')) + '\n\n' +
                         (isPlaylist 
-                            ? t.success.playlistAdded.replace('{count}', queuedTracks)
-                            : t.success.trackAdded) + '\n\n' +
-                        (player.playing ? t.success.nowPlaying : t.success.queueReady)
+                            ? (t.success?.playlistAdded || '`{count}` tracks added to the queue.').replace('{count}', queuedTracks)
+                            : (t.success?.trackAdded || 'Track added to the queue.')) + '\n\n' +
+                        (player.playing
+                            ? (t.success?.nowPlaying || '▶️ Now playing!')
+                            : (t.success?.queueReady || '📋 Added to queue.'))
                     )
                 );
 
             const message = await interaction.editReply({ 
                 components: [successContainer],
                 flags: MessageFlags.IsComponentsV2,
-                fetchReply: true
             });
 
             setTimeout(() => {
