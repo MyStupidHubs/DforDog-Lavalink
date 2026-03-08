@@ -23,8 +23,6 @@ const nowPlayingMessages = new Map();
 const progressUpdateIntervals = new Map();
 const musicCard = new EnhancedMusicCard();
 const useGeneratedSongCard = config.generateSongCard !== false;
-const enableVoiceChannelIdPatch = config.enableVoiceChannelIdPatch === true;
-const voiceDebug = config.voiceDebug === true;
 
 function patchVoiceChannelIdSupport(player) {
     const connection = player?.connection;
@@ -45,9 +43,6 @@ function patchVoiceChannelIdSupport(player) {
             if (channelId) {
                 connection.voice.channelId = channelId;
             }
-            if (voiceDebug) {
-                console.log(`[ VOICE DEBUG ] stateUpdate guild=${player.guildId} channelId=${channelId || 'null'} sessionId=${data?.session_id ? 'yes' : 'no'}`);
-            }
         };
     }
 
@@ -56,10 +51,6 @@ function patchVoiceChannelIdSupport(player) {
         connection.updatePlayerVoiceData = () => {
             if (!connection.voice.channelId) {
                 connection.voice.channelId = connection.voiceChannel || player.voiceChannel || null;
-            }
-            if (voiceDebug) {
-                const v = connection.voice || {};
-                console.log(`[ VOICE DEBUG ] updatePlayerVoiceData guild=${player.guildId} channelId=${v.channelId || 'null'} sessionId=${v.sessionId ? 'yes' : 'no'} token=${v.token ? 'yes' : 'no'} endpoint=${v.endpoint ? 'yes' : 'no'}`);
             }
             originalUpdatePlayerVoiceData();
         };
@@ -147,13 +138,29 @@ async function initializePlayer(client) {
     client.lavalinkManager = nodeManager;
     client.nodeManager = nodeManager;
 
+    client.riffy.on("nodeConnect", node => {
+        console.log(`${colors.cyan}[ LAVALINK ]${colors.reset} ${colors.green}Node ${node.name} Connected ✅${colors.reset}`);
+
+        const channel = client.channels.cache.get("1474712195127316530");
+        if (channel) channel.setName("DJ for Dog: 🟢").catch(console.error);
+    });
+
+    client.riffy.on("nodeError", (node, error) => {
+        console.log(`${colors.cyan}[ LAVALINK ]${colors.reset} ${colors.red}Node ${node.name} Error ❌ | ${error.message}${colors.reset}`);
+
+        const channel = client.channels.cache.get("1474712195127316530");
+        if (channel) channel.setName("DJ for Dog: 🔴").catch(console.error);
+    });
+
+    client.riffy.on("nodeDisconnect", (node) => {
+        console.log(`${colors.cyan}[ LAVALINK ]${colors.reset} ${colors.red}Node ${node.name} Disconnected ❌${colors.reset}`);
+
+        const channel = client.channels.cache.get("1474712195127316530");
+        if (channel) channel.setName("DJ for Dog: 🔴").catch(console.error);
+    });
+
     client.riffy.on("playerCreate", (player) => {
-        if (enableVoiceChannelIdPatch) {
-            patchVoiceChannelIdSupport(player);
-        }
-        if (voiceDebug) {
-            console.log(`[ VOICE DEBUG ] playerCreate guild=${player.guildId} voiceChannel=${player.voiceChannel || 'null'} patch=${enableVoiceChannelIdPatch ? 'on' : 'off'}`);
-        }
+        patchVoiceChannelIdSupport(player);
     });
 
     client.riffy.on("trackException", async (player, error) => {
@@ -575,6 +582,7 @@ async function cleanupTrackMessages(client, player) {
     guildTrackMessages.set(guildId, []);
     nowPlayingMessages.delete(guildId);
 }
+
 function formatDuration(ms) {
     const seconds = Math.floor((ms / 1000) % 60);
     const minutes = Math.floor((ms / (1000 * 60)) % 60);
@@ -588,6 +596,7 @@ function formatDuration(ms) {
         .filter(Boolean)
         .join(' ');
 }
+
 function setupCollector(client, player, channel, message) {
     const filter = i => [
         'loopToggle', 'skipTrack', 'disableLoop', 'showLyrics', 'clearQueue',
@@ -737,7 +746,6 @@ async function adjustVolume(player, channel, amount, t = {}) {
     }
 }
 
-
 async function toggleLoop(player, channel, t = {}) {
     player.setLoop(player.loop === "track" ? "queue" : "track");
     await sendEmbed(channel, player.loop === "track" ? (t.controls?.trackLoopActivated || "🔁 **Track loop is activated!**") : (t.controls?.queueLoopActivated || "🔁 **Queue loop is activated!**"));
@@ -747,8 +755,6 @@ async function disableLoop(player, channel, t = {}) {
     player.setLoop("none");
     await sendEmbed(channel, t.controls?.loopDisabled || "❌ **Loop is disabled!**");
 }
-
-
 
 async function getLyrics(trackName, artistName, duration) {
     try {
@@ -793,11 +799,9 @@ async function getLyrics(trackName, artistName, duration) {
     }
 }
 
-
-
 async function showLyrics(channel, player) {
-            const lang = await getLang(player.guildId).catch(() => ({ console: { player: {} } }));
-            const t = lang.console?.player || {};
+    const lang = await getLang(player.guildId).catch(() => ({ console: { player: {} } }));
+    const t = lang.console?.player || {};
     
     if (!player || !player.current || !player.current.info) {
         await sendEmbed(channel, t.lyrics?.noSongPlaying || "🚫 **No song is currently playing.**");
@@ -812,7 +816,6 @@ async function showLyrics(channel, player) {
         return;
     }
 
-    
     const lines = lyrics.split('\n').map(line => line.trim()).filter(Boolean);
     const songDuration = Math.floor(track.length / 1000); 
 
@@ -856,7 +859,7 @@ async function showLyrics(channel, player) {
         type: 'lyrics'
     });
 
-        const updateLyrics = async () => {
+    const updateLyrics = async () => {
         const currentTime = Math.floor(player.position / 1000); 
         const totalLines = lines.length;
 
@@ -928,8 +931,6 @@ async function showLyrics(channel, player) {
         message.delete().catch(() => {});
     });
 }
-
-
 
 function createActionRow1(disabled) {
     return new ActionRowBuilder()
@@ -1050,16 +1051,13 @@ async function startProgressUpdates(client, guildId, message, player, track) {
                 const msg = await channel.messages.fetch(stored.messageId).catch(() => null);
                 if (msg) {
                     try {
-
                         const shouldRegenerateCard = useGeneratedSongCard &&
                             config.lowMemoryMode !== true;
                         
                         if (shouldRegenerateCard) {
-             
                             let thumbnailURL = track.info.thumbnail || '';
                             const trackUri = track.info.uri || '';
                             
-                        
                             if ((!thumbnailURL || !thumbnailURL.startsWith('http')) && trackUri) {
                                 thumbnailURL = trackUri;
                             }
@@ -1089,7 +1087,6 @@ async function startProgressUpdates(client, guildId, message, player, track) {
                                 flags: MessageFlags.IsComponentsV2
                             });
                         } else {
-                       
                             const editComponents = [...components];
                             if (useGeneratedSongCard) {
                                 const existingCardUrl = msg.attachments?.first?.()?.url;
