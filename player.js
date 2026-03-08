@@ -1055,9 +1055,11 @@ async function startProgressUpdates(client, guildId, message, player, track) {
                             config.lowMemoryMode !== true;
                         
                         if (shouldRegenerateCard) {
+             
                             let thumbnailURL = track.info.thumbnail || '';
                             const trackUri = track.info.uri || '';
                             
+                        
                             if ((!thumbnailURL || !thumbnailURL.startsWith('http')) && trackUri) {
                                 thumbnailURL = trackUri;
                             }
@@ -1087,6 +1089,7 @@ async function startProgressUpdates(client, guildId, message, player, track) {
                                 flags: MessageFlags.IsComponentsV2
                             });
                         } else {
+                       
                             const editComponents = [...components];
                             if (useGeneratedSongCard) {
                                 const existingCardUrl = msg.attachments?.first?.()?.url;
