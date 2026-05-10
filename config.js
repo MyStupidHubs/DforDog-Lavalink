@@ -24,8 +24,8 @@ module.exports = {
      {
     name: "DJForDog",
     password: "UHrg5iqJVE0",
-    host: "168.222.251.98",
-    port: 5380,
+    host: "45.13.236.245",
+    port: 7398,
     secure: false
     }
   ]
