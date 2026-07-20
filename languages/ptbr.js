@@ -1,7 +1,7 @@
 module.exports = {
     meta: {
         name: "Português (Brasil)",
-        code: "pt-BR"
+        code: "ptbr"
     },
     help: {
         command: {
