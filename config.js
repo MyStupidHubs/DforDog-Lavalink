@@ -2,7 +2,7 @@
 
 module.exports = {
   TOKEN: "",
-  language: "en",
+  language: "pt-BR",
   ownerID: ["1004206704994566164", "981743770016055328"], 
   mongodbUri : "mongodb+srv://andre_andrezinh2:2ymwOxtp4Zed6GfE@djfordog.tieovhx.mongodb.net/?retryWrites=true&w=majority",
   spotifyClientId : "d92baed9605a45a39ed7c2a2d960b1c1",
@@ -28,8 +28,8 @@ module.exports = {
      {
     name: "DJForDog",
     password: "UHrg5iqJVE0",
-    host: "168.222.251.98",
-    port: 2887,
+    host: "172.96.140.62",
+    port: 7793,
     secure: false
     }
   ]
