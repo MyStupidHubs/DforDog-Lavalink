@@ -404,6 +404,27 @@ async function initializePlayer(client) {
     client.lavalinkManager = nodeManager;
     client.nodeManager = nodeManager;
 
+    client.riffy.on("nodeConnect", node => {
+        console.log(`${colors.cyan}[ LAVALINK ]${colors.reset} ${colors.green}Node ${node.name} Connected ✅${colors.reset}`);
+
+        const channel = client.channels.cache.get("1474712195127316530");
+        if (channel) channel.setName("DJ for Dog: 🟢").catch(console.error);
+    });
+
+    client.riffy.on("nodeError", (node, error) => {
+        console.log(`${colors.cyan}[ LAVALINK ]${colors.reset} ${colors.red}Node ${node.name} Error ❌ | ${error.message}${colors.reset}`);
+
+        const channel = client.channels.cache.get("1474712195127316530");
+        if (channel) channel.setName("DJ for Dog: 🔴").catch(console.error);
+    });
+
+    client.riffy.on("nodeDisconnect", (node) => {
+        console.log(`${colors.cyan}[ LAVALINK ]${colors.reset} ${colors.red}Node ${node.name} Disconnected ❌${colors.reset}`);
+
+        const channel = client.channels.cache.get("1474712195127316530");
+        if (channel) channel.setName("DJ for Dog: 🔴").catch(console.error);
+    });
+
     client.riffy.on("playerCreate", (player) => {
         if (enableVoiceChannelIdPatch) {
             patchVoiceChannelIdSupport(player);
