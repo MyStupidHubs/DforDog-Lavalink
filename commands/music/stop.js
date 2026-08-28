@@ -9,6 +9,20 @@ const data = new SlashCommandBuilder()
   .setName("stop")
   .setDescription("Stop the current song and destroy the player");
 
+async function waitForPlayerRemoval(client, guildId, oldPlayer, timeoutMs = 2500) {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+        const currentPlayer = client.riffy?.players?.get(guildId);
+        if (!currentPlayer || currentPlayer !== oldPlayer) {
+            return true;
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    return false;
+}
+
 module.exports = {
     data: data,
     run: async (client, interaction) => {
@@ -36,11 +50,24 @@ module.exports = {
             await cleanupTrackMessages(client, player);
 
             player.queue.clear();
-            
             player.stop();
             
             if (!is24_7) {
-                player.destroy();
+                await new Promise(resolve => setTimeout(resolve, 200));
+
+                if (!player.destroyed) {
+                    player.destroy();
+                }
+
+                // Riffy can take a moment to remove a destroyed player from its map.
+                // Wait for that cleanup so the next /play cannot reuse stale state.
+                await waitForPlayerRemoval(client, interaction.guildId, player);
+
+                if (client.statusManager) {
+                    await client.statusManager
+                        .onPlayerDisconnect(interaction.guildId)
+                        .catch(() => {});
+                }
             }
 
             return await sendSuccessResponse(
