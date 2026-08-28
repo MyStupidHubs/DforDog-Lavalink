@@ -249,12 +249,22 @@ class StatusManager {
 
     async onTrackStart(guildId, trackTitle, voiceChannelId = null) {
         if (!trackTitle) {
-            await this.updateStatusAndVoice(guildId);
+            // Do not make the now-playing card wait on voice-channel status APIs.
+            // updateStatusAndVoice can involve Discord REST fallbacks that are much
+            // slower than the presence update itself.
+            Promise.resolve(this.updateStatusAndVoice(guildId)).catch((error) => {
+                console.error(`❌ Background status reconciliation failed: ${error.message}`);
+            });
             return;
         }
 
+        // Presence is the user-visible "Listening to" activity and should update
+        // immediately. Voice-channel status/topic updates are best-effort and must
+        // never block player.js's trackStart handler from creating the full panel.
         await this.setPlayingStatus(trackTitle);
-        await this.setVoiceChannelStatus(guildId, trackTitle, voiceChannelId);
+        Promise.resolve(this.setVoiceChannelStatus(guildId, trackTitle, voiceChannelId)).catch((error) => {
+            console.error(`❌ Background voice-channel status update failed: ${error.message}`);
+        });
     }
  
     async onTrackEnd(guildId) {
