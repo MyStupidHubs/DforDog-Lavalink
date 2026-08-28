@@ -70,28 +70,140 @@ function installStalePlayerEventGuard(client) {
 
     const originalEmit = riffy.emit;
     const pendingQueueEnds = new Map();
+    const pendingTrackEnds = new Map();
+    const playbackGenerations = new Map();
     const lifecycleEvents = new Set(['trackStart', 'trackEnd', 'queueEnd', 'playerDisconnect', 'trackError', 'trackStuck']);
+
+    const getTrackKey = (track) => {
+        return track?.info?.identifier || track?.info?.uri || track?.track || null;
+    };
+
+    const patchPlayerDestroy = (player) => {
+        if (!player || player.__activePlaybackDestroyGuardInstalled || typeof player.destroy !== 'function') return;
+
+        const originalDestroy = player.destroy.bind(player);
+
+        player.destroy = function(...args) {
+            const guildId = this.guildId;
+            const currentPlayer = riffy.players?.get(guildId);
+            const guild = client.guilds.cache.get(guildId);
+            const botVoiceChannelId = guild?.members?.me?.voice?.channelId || null;
+            const nodeConnected = this.node?.connected !== false;
+            const activeTrack = this.current?.info?.title || 'unknown';
+            const isCurrentPlayer = currentPlayer === this;
+            const isActivelyPlaying = this.playing === true && !!this.current;
+
+            // Every intentional user stop in this bot calls player.stop() before destroy(),
+            // so playing=false and the destroy is allowed. This guard only blocks the
+            // dangerous race where an old async cleanup tries to destroy a player that
+            // has already resumed with a new track.
+            if (isCurrentPlayer && isActivelyPlaying && botVoiceChannelId && nodeConnected) {
+                const caller = new Error('destroy caller').stack
+                    ?.split('\n')
+                    .slice(2, 7)
+                    .map(line => line.trim())
+                    .join(' <- ') || 'unknown';
+
+                console.warn(`${colors.cyan}[ RIFFY ]${colors.reset} ${colors.yellow}Blocked unsafe destroy for guild ${guildId}; player is actively playing "${activeTrack}" in voice channel ${botVoiceChannelId}. caller=${caller}${colors.reset}`);
+                return this;
+            }
+
+            console.log(`${colors.cyan}[ RIFFY ]${colors.reset} Destroy allowed for guild ${guildId}; playing=${this.playing === true} voice=${botVoiceChannelId || 'none'} current=${activeTrack}`);
+            return originalDestroy(...args);
+        };
+
+        player.__activePlaybackDestroyGuardInstalled = true;
+    };
+
+    if (riffy.players?.values) {
+        for (const player of riffy.players.values()) {
+            patchPlayerDestroy(player);
+        }
+    }
 
     riffy.emit = function(eventName, ...args) {
         const eventPlayer = args[0];
         const guildId = eventPlayer?.guildId;
         const track = args[1];
 
+        if (eventName === 'playerCreate' && eventPlayer) {
+            patchPlayerDestroy(eventPlayer);
+        }
+
         if (lifecycleEvents.has(eventName) && guildId) {
             const title = track?.info?.title || eventPlayer?.current?.info?.title || 'none';
-            console.log(`${colors.cyan}[ RIFFY EVENT ]${colors.reset} ${eventName} guild=${guildId} playing=${eventPlayer?.playing === true} queue=${eventPlayer?.queue?.length ?? 'n/a'} current=${title}`);
+            const generation = playbackGenerations.get(guildId) || 0;
+            console.log(`${colors.cyan}[ RIFFY EVENT ]${colors.reset} ${eventName} guild=${guildId} gen=${generation} playing=${eventPlayer?.playing === true} queue=${eventPlayer?.queue?.length ?? 'n/a'} current=${title}`);
         }
 
         if (eventName === 'trackStart' && guildId) {
-            const pending = pendingQueueEnds.get(guildId);
-            if (pending) {
-                clearTimeout(pending.timer);
+            patchPlayerDestroy(eventPlayer);
+
+            const nextGeneration = (playbackGenerations.get(guildId) || 0) + 1;
+            playbackGenerations.set(guildId, nextGeneration);
+            eventPlayer.__playbackGeneration = nextGeneration;
+
+            const pendingTrackEnd = pendingTrackEnds.get(guildId);
+            if (pendingTrackEnd) {
+                clearTimeout(pendingTrackEnd.timer);
+                pendingTrackEnds.delete(guildId);
+                console.warn(`${colors.cyan}[ RIFFY ]${colors.reset} ${colors.yellow}Cancelled stale trackEnd for guild ${guildId}; generation ${nextGeneration} started with ${track?.info?.title || 'a new track'}.${colors.reset}`);
+            }
+
+            const pendingQueueEnd = pendingQueueEnds.get(guildId);
+            if (pendingQueueEnd) {
+                clearTimeout(pendingQueueEnd.timer);
                 pendingQueueEnds.delete(guildId);
                 console.warn(`${colors.cyan}[ RIFFY ]${colors.reset} ${colors.yellow}Cancelled stale queueEnd cleanup for guild ${guildId}; playback resumed with ${track?.info?.title || 'a new track'}.${colors.reset}`);
             }
         }
 
+        // Riffy emits trackEnd synchronously and then starts the next queued/looped
+        // track. The bot's async trackEnd handler can otherwise wake up after that new
+        // track has started and delete its status/card. Delay the application-level
+        // trackEnd briefly and discard it as soon as a newer trackStart is observed.
+        if (eventName === 'trackEnd' && guildId) {
+            const generationAtEnd = playbackGenerations.get(guildId) || 0;
+            const endedTrackKey = getTrackKey(track);
+            const previousPending = pendingTrackEnds.get(guildId);
+
+            if (previousPending) {
+                clearTimeout(previousPending.timer);
+            }
+
+            const timer = setTimeout(() => {
+                pendingTrackEnds.delete(guildId);
+
+                const currentPlayer = this.players?.get(guildId);
+                const currentGeneration = playbackGenerations.get(guildId) || 0;
+                const currentTrackKey = getTrackKey(currentPlayer?.current);
+                const generationChanged = currentGeneration !== generationAtEnd;
+                const newerTrackActive = currentPlayer === eventPlayer &&
+                    currentPlayer?.playing === true &&
+                    currentTrackKey &&
+                    endedTrackKey &&
+                    currentTrackKey !== endedTrackKey;
+
+                if (generationChanged || newerTrackActive) {
+                    console.warn(`${colors.cyan}[ RIFFY ]${colors.reset} ${colors.yellow}Ignoring stale trackEnd for guild ${guildId}; playback already advanced to generation ${currentGeneration}.${colors.reset}`);
+                    return;
+                }
+
+                originalEmit.call(this, eventName, ...args);
+            }, 1500);
+
+            pendingTrackEnds.set(guildId, {
+                timer,
+                player: eventPlayer,
+                generation: generationAtEnd,
+                trackKey: endedTrackKey
+            });
+            return true;
+        }
+
         if (eventName === 'queueEnd' && guildId) {
+            patchPlayerDestroy(eventPlayer);
+
             const previousPending = pendingQueueEnds.get(guildId);
             if (previousPending) {
                 clearTimeout(previousPending.timer);
@@ -121,9 +233,15 @@ function installStalePlayerEventGuard(client) {
             setTimeout(() => {
                 const currentPlayer = this.players?.get(guildId);
                 const hasReplacementPlayer = currentPlayer && currentPlayer !== eventPlayer && !currentPlayer.destroyed;
+                const guild = client.guilds.cache.get(guildId);
+                const botVoiceChannelId = guild?.members?.me?.voice?.channelId || null;
+                const samePlayerStillActive = currentPlayer === eventPlayer &&
+                    eventPlayer?.playing === true &&
+                    !!eventPlayer?.current &&
+                    !!botVoiceChannelId;
 
-                if (hasReplacementPlayer) {
-                    console.warn(`${colors.cyan}[ RIFFY ]${colors.reset} ${colors.yellow}Ignoring delayed playerDisconnect for guild ${guildId}; a newer player is active.${colors.reset}`);
+                if (hasReplacementPlayer || samePlayerStillActive) {
+                    console.warn(`${colors.cyan}[ RIFFY ]${colors.reset} ${colors.yellow}Ignoring delayed playerDisconnect for guild ${guildId}; playback is already active in voice again.${colors.reset}`);
                     return;
                 }
 
@@ -136,7 +254,7 @@ function installStalePlayerEventGuard(client) {
     };
 
     riffy.__stalePlayerEventGuardInstalled = true;
-    console.log(`${colors.cyan}[ RIFFY ]${colors.reset} Lifecycle guard v2 installed (queueEnd debounce + delayed disconnect).`);
+    console.log(`${colors.cyan}[ RIFFY ]${colors.reset} Lifecycle guard v3 installed (track generations + active destroy protection + queueEnd debounce).`);
 }
 
 initializePlayer(client).then(() => {
