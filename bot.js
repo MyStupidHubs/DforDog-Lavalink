@@ -64,7 +64,35 @@ process.on('uncaughtException', (error) => {
     console.error(lang.console?.bot?.uncaughtException || 'Uncaught Exception:', error);
 });
 
-initializePlayer(client).catch(error => {
+function installStalePlayerEventGuard(client) {
+    const riffy = client.riffy;
+    if (!riffy || riffy.__stalePlayerEventGuardInstalled) return;
+
+    const protectedEvents = new Set(['trackEnd', 'playerDisconnect', 'queueEnd']);
+    const originalEmit = riffy.emit;
+
+    riffy.emit = function(eventName, ...args) {
+        if (protectedEvents.has(eventName)) {
+            const eventPlayer = args[0];
+            const guildId = eventPlayer?.guildId;
+            const currentPlayer = guildId ? this.players?.get(guildId) : null;
+            const hasReplacementPlayer = currentPlayer && currentPlayer !== eventPlayer && !currentPlayer.destroyed;
+
+            if (hasReplacementPlayer) {
+                console.warn(`${colors.cyan}[ RIFFY ]${colors.reset} ${colors.yellow}Ignoring stale ${eventName} event for guild ${guildId}; a newer player is active.${colors.reset}`);
+                return false;
+            }
+        }
+
+        return originalEmit.call(this, eventName, ...args);
+    };
+
+    riffy.__stalePlayerEventGuardInstalled = true;
+}
+
+initializePlayer(client).then(() => {
+    installStalePlayerEventGuard(client);
+}).catch(error => {
     const lang = getLangSync();
     console.error(`${colors.cyan}[ LAVALINK ]${colors.reset} ${colors.red}${lang.console?.bot?.lavalinkError?.replace('{message}', error.message) || `Error initializing player: ${error.message}`}${colors.reset}`);
 });
