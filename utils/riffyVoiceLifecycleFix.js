@@ -1,8 +1,9 @@
 const { Riffy } = require('riffy');
 
-const PLAYER_UPDATE_STALE_MS = 18000;
 const WATCHDOG_INTERVAL_MS = 6000;
 const HEARTBEAT_LOG_MS = 30000;
+const WS_CONNECTING = 0;
+const WS_OPEN = 1;
 
 function getTrackKey(track) {
     return track?.info?.identifier || track?.info?.uri || track?.track || null;
@@ -11,8 +12,6 @@ function getTrackKey(track) {
 function attachNodeSocketActivity(node) {
     if (!node) return;
 
-    // Riffy 1.0.12 can keep node.connected=true even when the websocket stops
-    // delivering useful player events. Track real websocket traffic separately.
     const attach = () => {
         const ws = node.ws;
         if (!ws || ws.__dfordogActivityListenerInstalled) return;
@@ -25,18 +24,26 @@ function attachNodeSocketActivity(node) {
         node.__dfordogLastWsPayloadAt = Date.now();
         ws.on('open', () => {
             node.__dfordogLastWsPayloadAt = Date.now();
+            node.__dfordogLastWsOpenAt = Date.now();
         });
         ws.on('message', () => {
             node.__dfordogLastWsPayloadAt = Date.now();
+        });
+        ws.on('close', (code) => {
+            node.__dfordogLastWsCloseAt = Date.now();
+            node.__dfordogLastWsCloseCode = code;
+        });
+        ws.on('error', (error) => {
+            node.__dfordogLastWsError = error?.message || String(error || 'unknown');
         });
     };
 
     if (!node.__dfordogConnectActivityPatchInstalled && typeof node.connect === 'function') {
         const originalConnect = node.connect.bind(node);
         node.connect = function(...args) {
-            // autoResume in Riffy 1.0.12 calls player.restart(), but Player has no
-            // restart() method. Lavalink v4 session resuming already preserves the
-            // remote player, so disable only this broken client-side restart path.
+            // Riffy 1.0.12's Node.open() calls player.restart() when autoResume is
+            // enabled, but Player has no restart() method. Lavalink v4 session
+            // resuming already preserves the server-side player, so keep this off.
             this.autoResume = false;
             const result = originalConnect(...args);
             attach();
@@ -62,13 +69,45 @@ function patchPlayerPlaybackTracking(player) {
     player.__dfordogPlaybackTrackingInstalled = true;
 }
 
+function scheduleNativeReconnect(node, reason = 'socket unavailable') {
+    if (!node) return false;
+
+    attachNodeSocketActivity(node);
+    const wsState = node.ws?.readyState;
+
+    if (node.connected === true && wsState === WS_OPEN) return true;
+    if (wsState === WS_CONNECTING) return true;
+    if (node.reconnectAttempt) return true;
+
+    node.connected = false;
+
+    try {
+        if (typeof node.reconnect === 'function') {
+            console.warn(`[ RIFFY WS ] Scheduling native Riffy reconnect for ${node.name || node.host}: ${reason}.`);
+            node.reconnect();
+            return true;
+        }
+
+        // Compatibility fallback for a Riffy build without reconnect(). Only call
+        // connect() when there is no live/connecting websocket.
+        if (typeof node.connect === 'function' && (!node.ws || node.ws.readyState > WS_OPEN)) {
+            console.warn(`[ RIFFY WS ] Reconnecting ${node.name || node.host} directly because reconnect() is unavailable: ${reason}.`);
+            node.connect();
+            return true;
+        }
+    } catch (error) {
+        console.warn(`[ RIFFY WS ] Reconnect scheduling failed for ${node.name || node.host}: ${error?.message || error}`);
+    }
+
+    return false;
+}
+
 function installRiffyInstanceRecovery(riffy) {
     if (!riffy || riffy.__dfordogEventRecoveryInstalled) return;
 
     const lastPlayerUpdate = new Map();
     const lastObservedTrack = new Map();
     const lastHeartbeatLog = new Map();
-    const lastForcedRecovery = new Map();
 
     const markPlayer = (player) => {
         if (!player) return;
@@ -87,6 +126,12 @@ function installRiffyInstanceRecovery(riffy) {
     riffy.on('nodeConnect', (node) => {
         attachNodeSocketActivity(node);
         node.__dfordogLastWsPayloadAt = Date.now();
+    });
+
+    riffy.on('nodeDisconnect', (node) => {
+        attachNodeSocketActivity(node);
+        // Do not call connect() here. Riffy Node.close() already calls reconnect().
+        console.warn(`[ RIFFY WS ] Node ${node?.name || node?.host || 'unknown'} disconnected; native Riffy reconnect will handle it.`);
     });
 
     riffy.on('playerCreate', (player) => markPlayer(player));
@@ -112,9 +157,8 @@ function installRiffyInstanceRecovery(riffy) {
         const trackKey = getTrackKey(track);
         if (!trackKey || !track?.info || player.playing !== true || packet?.state?.connected === false) return;
 
-        // Normally trackStart updates the status immediately. If the Lavalink
-        // event stream misses TrackStartEvent but playerUpdate still arrives,
-        // recover the Discord presence/voice status from player.current.
+        // If TrackStartEvent was missed but playerUpdate arrives, repair only the
+        // Discord status. This is reconciliation, not a websocket reconnect trigger.
         if (lastObservedTrack.get(guildId) !== trackKey) {
             const statusManager = riffy.client?.statusManager;
             if (statusManager?.onTrackStart) {
@@ -136,13 +180,26 @@ function installRiffyInstanceRecovery(riffy) {
         lastPlayerUpdate.delete(guildId);
         lastObservedTrack.delete(guildId);
         lastHeartbeatLog.delete(guildId);
-        lastForcedRecovery.delete(guildId);
     };
 
     riffy.on('playerDisconnect', clearGuild);
 
     const watchdog = setInterval(() => {
         const now = Date.now();
+
+        // The old v4 watchdog forcibly terminated a healthy websocket after 18s
+        // without playerUpdate. That produced overlapping Riffy/Lavalink sessions.
+        // v5 never reconnects based on event silence alone.
+        for (const node of riffy.nodeMap?.values?.() || []) {
+            attachNodeSocketActivity(node);
+            const wsState = node?.ws?.readyState;
+
+            // Repair only an objectively inconsistent socket state. If close() has
+            // already scheduled reconnectAttempt, scheduleNativeReconnect is a no-op.
+            if (node?.connected === true && wsState !== undefined && wsState !== WS_OPEN) {
+                scheduleNativeReconnect(node, `node.connected=true but ws.readyState=${wsState}`);
+            }
+        }
 
         for (const player of riffy.players?.values?.() || []) {
             if (!player?.guildId || player.playing !== true || player.paused === true || !player.current) continue;
@@ -155,31 +212,11 @@ function installRiffyInstanceRecovery(riffy) {
 
             if (now - (lastHeartbeatLog.get(guildId) || 0) >= HEARTBEAT_LOG_MS) {
                 const wsState = node?.ws?.readyState;
-                console.log(`[ RIFFY WATCH ] guild=${guildId} playing=true playerUpdateAge=${Math.round(updateAge / 1000)}s wsState=${wsState ?? 'none'} nodeConnected=${node?.connected === true} current=${player.current?.info?.title || 'unknown'}`);
+                const wsPayloadAge = node?.__dfordogLastWsPayloadAt
+                    ? Math.round((now - node.__dfordogLastWsPayloadAt) / 1000)
+                    : 'n/a';
+                console.log(`[ RIFFY WATCH ] guild=${guildId} playing=true playerUpdateAge=${Math.round(updateAge / 1000)}s wsPayloadAge=${wsPayloadAge}s wsState=${wsState ?? 'none'} nodeConnected=${node?.connected === true} reconnectPending=${!!node?.reconnectAttempt} current=${player.current?.info?.title || 'unknown'}`);
                 lastHeartbeatLog.set(guildId, now);
-            }
-
-            // Lavalink's default playerUpdate interval is 5 seconds. Missing more
-            // than 18 seconds while a track is actively playing means the event
-            // channel is stale even if REST requests still work.
-            if (updateAge < PLAYER_UPDATE_STALE_MS) continue;
-            if (now - (lastForcedRecovery.get(guildId) || 0) < PLAYER_UPDATE_STALE_MS) continue;
-
-            lastForcedRecovery.set(guildId, now);
-            console.warn(`[ RIFFY WATCH ] Event stream stalled for guild ${guildId} (${Math.round(updateAge / 1000)}s without playerUpdate). Forcing Lavalink websocket reconnect while preserving the Riffy instance.`);
-
-            try {
-                if (node?.ws && typeof node.ws.terminate === 'function') {
-                    node.ws.terminate();
-                } else if (node && typeof node.reconnect === 'function') {
-                    node.connected = false;
-                    node.reconnect();
-                } else if (node && typeof node.connect === 'function') {
-                    node.connected = false;
-                    node.connect();
-                }
-            } catch (error) {
-                console.warn(`[ RIFFY WATCH ] Websocket recovery failed for guild ${guildId}: ${error?.message || error}`);
             }
         }
     }, WATCHDOG_INTERVAL_MS);
@@ -188,7 +225,7 @@ function installRiffyInstanceRecovery(riffy) {
 
     riffy.__dfordogEventRecoveryInstalled = true;
     riffy.__dfordogEventRecoveryWatchdog = watchdog;
-    console.log('[ RIFFY WATCH ] Event-stream watchdog installed (playerUpdate heartbeat + status reconciliation).');
+    console.log('[ RIFFY WATCH ] v5 watchdog installed (diagnostics + status reconciliation; no forced reconnect on playerUpdate silence).');
 }
 
 /**
@@ -196,8 +233,9 @@ function installRiffyInstanceRecovery(riffy) {
  *
  * 1) Allow legitimate destroy() after Discord reports channel_id=null.
  * 2) Remove disconnected/zombie guild players before createConnection().
- * 3) Recover a silent Lavalink websocket event stream.
- * 4) Reconcile Discord status from playerUpdate when TrackStartEvent is missed.
+ * 3) Preserve one Riffy instance/listener set across node reconnects.
+ * 4) Serialize node reconnects and let Riffy own websocket close/reconnect.
+ * 5) Reconcile Discord status from playerUpdate when TrackStartEvent is missed.
  */
 function installRiffyVoiceLifecycleFix() {
     if (!Riffy?.prototype || Riffy.prototype.__dfordogVoiceLifecycleFixInstalled) return;
@@ -279,7 +317,7 @@ function installRiffyVoiceLifecycleFix() {
         writable: false
     });
 
-    console.log('[ RIFFY VOICE ] Lifecycle recovery patch installed (disconnect + zombie cleanup + event watchdog).');
+    console.log('[ RIFFY VOICE ] Lifecycle recovery patch v5 installed (native websocket reconnect + zombie cleanup).');
 }
 
 function installLavalinkManagerRecovery() {
@@ -300,52 +338,70 @@ function installLavalinkManagerRecovery() {
 
         const originalRefresh = manager.refreshRiffy?.bind(manager);
 
+        // Base LavalinkNodeManager used node.connect() directly while Riffy's own
+        // reconnectAttempt could already be pending. Node.connect() closes whatever
+        // websocket is currently referenced, which can create close/open races and
+        // multiple Lavalink sessions. Serialize that path here.
+        manager.attemptConnectNode = async function(nodeId) {
+            const nodeConfig = this.nodes.get(nodeId);
+            if (!nodeConfig || !this.riffy) return false;
+
+            const healthy = await this.checkNodeHealth(nodeId).catch(() => false);
+            if (!healthy) return false;
+
+            let node = this._findRiffyNodeObjectByConfig(nodeConfig);
+
+            try {
+                if (!node) {
+                    console.warn(`[ LAVALINK ][RECOVERY] Runtime node ${nodeConfig.id} is missing; creating one replacement node.`);
+                    node = this.riffy.createNode({
+                        host: nodeConfig.host,
+                        password: nodeConfig.password,
+                        port: nodeConfig.port,
+                        secure: !!nodeConfig.secure,
+                        name: nodeConfig.id,
+                        displayName: nodeConfig.displayName || nodeConfig.name || nodeConfig.id
+                    });
+                    attachNodeSocketActivity(node);
+                    return true;
+                }
+
+                attachNodeSocketActivity(node);
+
+                const wsState = node.ws?.readyState;
+                if (node.connected === true && wsState === WS_OPEN) return true;
+                if (wsState === WS_CONNECTING || node.reconnectAttempt) return true;
+
+                return scheduleNativeReconnect(node, 'Lavalink manager detected disconnected node');
+            } catch (error) {
+                console.warn(`[ LAVALINK ][RECOVERY] Failed reconnecting ${nodeConfig.id}: ${error?.message || error}`);
+                return false;
+            }
+        };
+
         manager.refreshRiffy = async function() {
-            // Never silently replace a live Riffy object: player.js, lifecycle guards,
-            // cards and status listeners are attached to that EventEmitter instance.
+            // Never replace a live Riffy EventEmitter. player.js, status handlers and
+            // lifecycle guards are registered on this exact instance.
             if (this.riffy) {
                 this.client.riffy = this.riffy;
                 installRiffyInstanceRecovery(this.riffy);
 
                 if (this.hasConnectedNodes()) return true;
 
-                console.warn('[ LAVALINK ][RECOVERY] Reconnecting nodes on the existing Riffy instance; listeners will be preserved.');
+                console.warn('[ LAVALINK ][RECOVERY] Reconnecting nodes on the existing Riffy instance; listeners and players are preserved.');
 
-                for (const nodeConfig of this.nodes.values()) {
-                    let node = this._findRiffyNodeObjectByConfig(nodeConfig);
-
-                    try {
-                        if (!node) {
-                            node = this.riffy.createNode({
-                                host: nodeConfig.host,
-                                password: nodeConfig.password,
-                                port: nodeConfig.port,
-                                secure: !!nodeConfig.secure,
-                                name: nodeConfig.id,
-                                displayName: nodeConfig.displayName || nodeConfig.name || nodeConfig.id
-                            });
-                        } else if (!node.connected) {
-                            attachNodeSocketActivity(node);
-                            if (node.reconnectAttempt) {
-                                clearTimeout(node.reconnectAttempt);
-                                node.reconnectAttempt = null;
-                            }
-                            node.reconnectAttempted = 1;
-                            node.connect();
-                        }
-                    } catch (error) {
-                        console.warn(`[ LAVALINK ][RECOVERY] Failed reconnecting ${nodeConfig.id}: ${error?.message || error}`);
-                    }
+                const attempts = [];
+                for (const nodeId of this.nodes.keys()) {
+                    attempts.push(this.attemptConnectNode(nodeId).catch(() => false));
                 }
+                await Promise.allSettled(attempts);
 
                 const recovered = await this.waitForConnectedNode(8000).catch(() => false);
                 this.client.riffy = this.riffy;
                 return recovered || this.hasConnectedNodes();
             }
 
-            // Startup-only fallback. If a manager truly has no Riffy instance yet,
-            // let the original initializer recreate it and immediately synchronize
-            // client.riffy plus the recovery listeners.
+            // Startup-only fallback when there genuinely is no Riffy instance.
             const result = originalRefresh ? await originalRefresh() : false;
             if (this.riffy) {
                 this.client.riffy = this.riffy;
@@ -357,7 +413,7 @@ function installLavalinkManagerRecovery() {
         manager.__dfordogRefreshRecoveryInstalled = true;
         client.riffy = manager.riffy;
         installRiffyInstanceRecovery(manager.riffy);
-        console.log('[ LAVALINK ][RECOVERY] Riffy instance-preserving reconnect patch installed.');
+        console.log('[ LAVALINK ][RECOVERY] v5 serialized reconnect patch installed.');
         return manager;
     };
 
