@@ -40,7 +40,7 @@ process.on('unhandledRejection', (error) => {
         const errorMsg = error.message || '';
         
         if (cause.code === 'UND_ERR_CONNECT_TIMEOUT' || 
-            errorMsg.includes('Connect Timeout') || 
+            errorMsg.includes('Connect Timeout') ||
             errorMsg.includes('fetch failed') ||
             errorMsg.includes('ConnectTimeoutError')) {
             console.warn(`${colors.cyan}[ LAVALINK ]${colors.reset} ${colors.yellow}Connection timeout to Lavalink node - will retry automatically${colors.reset}`);
@@ -68,26 +68,75 @@ function installStalePlayerEventGuard(client) {
     const riffy = client.riffy;
     if (!riffy || riffy.__stalePlayerEventGuardInstalled) return;
 
-    const protectedEvents = new Set(['trackEnd', 'playerDisconnect', 'queueEnd']);
     const originalEmit = riffy.emit;
+    const pendingQueueEnds = new Map();
+    const lifecycleEvents = new Set(['trackStart', 'trackEnd', 'queueEnd', 'playerDisconnect', 'trackError', 'trackStuck']);
 
     riffy.emit = function(eventName, ...args) {
-        if (protectedEvents.has(eventName)) {
-            const eventPlayer = args[0];
-            const guildId = eventPlayer?.guildId;
-            const currentPlayer = guildId ? this.players?.get(guildId) : null;
-            const hasReplacementPlayer = currentPlayer && currentPlayer !== eventPlayer && !currentPlayer.destroyed;
+        const eventPlayer = args[0];
+        const guildId = eventPlayer?.guildId;
+        const track = args[1];
 
-            if (hasReplacementPlayer) {
-                console.warn(`${colors.cyan}[ RIFFY ]${colors.reset} ${colors.yellow}Ignoring stale ${eventName} event for guild ${guildId}; a newer player is active.${colors.reset}`);
-                return false;
+        if (lifecycleEvents.has(eventName) && guildId) {
+            const title = track?.info?.title || eventPlayer?.current?.info?.title || 'none';
+            console.log(`${colors.cyan}[ RIFFY EVENT ]${colors.reset} ${eventName} guild=${guildId} playing=${eventPlayer?.playing === true} queue=${eventPlayer?.queue?.length ?? 'n/a'} current=${title}`);
+        }
+
+        if (eventName === 'trackStart' && guildId) {
+            const pending = pendingQueueEnds.get(guildId);
+            if (pending) {
+                clearTimeout(pending.timer);
+                pendingQueueEnds.delete(guildId);
+                console.warn(`${colors.cyan}[ RIFFY ]${colors.reset} ${colors.yellow}Cancelled stale queueEnd cleanup for guild ${guildId}; playback resumed with ${track?.info?.title || 'a new track'}.${colors.reset}`);
             }
+        }
+
+        if (eventName === 'queueEnd' && guildId) {
+            const previousPending = pendingQueueEnds.get(guildId);
+            if (previousPending) {
+                clearTimeout(previousPending.timer);
+            }
+
+            const timer = setTimeout(() => {
+                pendingQueueEnds.delete(guildId);
+
+                const currentPlayer = this.players?.get(guildId);
+                const replacementPlayer = currentPlayer && currentPlayer !== eventPlayer && !currentPlayer.destroyed;
+                const samePlayerResumed = currentPlayer === eventPlayer && eventPlayer?.playing === true;
+
+                if (replacementPlayer || samePlayerResumed) {
+                    console.warn(`${colors.cyan}[ RIFFY ]${colors.reset} ${colors.yellow}Ignoring stale queueEnd for guild ${guildId}; a player is already active again.${colors.reset}`);
+                    return;
+                }
+
+                console.log(`${colors.cyan}[ RIFFY ]${colors.reset} Dispatching confirmed queueEnd for guild ${guildId}.`);
+                originalEmit.call(this, eventName, ...args);
+            }, 1200);
+
+            pendingQueueEnds.set(guildId, { timer, player: eventPlayer });
+            return true;
+        }
+
+        if (eventName === 'playerDisconnect' && guildId) {
+            setTimeout(() => {
+                const currentPlayer = this.players?.get(guildId);
+                const hasReplacementPlayer = currentPlayer && currentPlayer !== eventPlayer && !currentPlayer.destroyed;
+
+                if (hasReplacementPlayer) {
+                    console.warn(`${colors.cyan}[ RIFFY ]${colors.reset} ${colors.yellow}Ignoring delayed playerDisconnect for guild ${guildId}; a newer player is active.${colors.reset}`);
+                    return;
+                }
+
+                originalEmit.call(this, eventName, ...args);
+            }, 500);
+            return true;
         }
 
         return originalEmit.call(this, eventName, ...args);
     };
 
     riffy.__stalePlayerEventGuardInstalled = true;
+    console.log(`${colors.cyan}[ RIFFY ]${colors.reset} Lifecycle guard v2 installed (queueEnd debounce + delayed disconnect).`);
 }
 
 initializePlayer(client).then(() => {
