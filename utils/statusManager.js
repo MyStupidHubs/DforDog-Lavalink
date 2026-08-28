@@ -61,15 +61,16 @@ class StatusManager {
         }, 30000);
     }
 
-    async setVoiceChannelStatus(guildId, trackTitle) {
+    async setVoiceChannelStatus(guildId, trackTitle, voiceChannelId = null) {
         try {
             const player = this.client.riffy?.players?.get(guildId);
-            if (!player || !player.voiceChannel) return;
+            const targetVoiceChannel = voiceChannelId || player?.voiceChannel;
+            if (!targetVoiceChannel) return;
 
             const guild = this.client.guilds.cache.get(guildId);
             if (!guild) return;
 
-            const voiceChannel = guild.channels.cache.get(player.voiceChannel);
+            const voiceChannel = guild.channels.cache.get(targetVoiceChannel);
             if (!voiceChannel) return;
         
             if (!this.voiceChannelData.has(voiceChannel.id)) {
@@ -246,8 +247,14 @@ class StatusManager {
         }
     }
 
-    async onTrackStart(guildId) {
-        await this.updateStatusAndVoice(guildId);
+    async onTrackStart(guildId, trackTitle, voiceChannelId = null) {
+        if (!trackTitle) {
+            await this.updateStatusAndVoice(guildId);
+            return;
+        }
+
+        await this.setPlayingStatus(trackTitle);
+        await this.setVoiceChannelStatus(guildId, trackTitle, voiceChannelId);
     }
  
     async onTrackEnd(guildId) {
