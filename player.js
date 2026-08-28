@@ -507,17 +507,18 @@ async function initializePlayer(client) {
             return;
         }
 
-        await new Promise(resolve => setTimeout(resolve, 200));
-
-        const currentPlayer = client.riffy.players.get(player.guildId);
-        if (!currentPlayer || currentPlayer !== player || player.destroyed) {
+        if (player.destroyed) {
             const lang = getLangSync();
-            console.error(`[ LAVALINK ] ${lang.console?.player?.playerInvalid?.replace('{guildId}', player.guildId) || `Player invalid or destroyed for guild ${player.guildId} - ignoring event`}`);
+            console.error(`[ LAVALINK ] ${lang.console?.player?.playerInvalid?.replace('{guildId}', player.guildId) || `Player destroyed for guild ${player.guildId} - ignoring event`}`);
             return;
         }
 
         if (client.statusManager && track.info.title) {
-            await client.statusManager.onTrackStart(player.guildId).catch(() => {});
+            await client.statusManager
+                .onTrackStart(player.guildId, track.info.title, player.voiceChannel)
+                .catch((error) => {
+                    console.error(`[ STATUS ] Failed to update track status for guild ${player.guildId}: ${error.message}`);
+                });
         }
 
         const channel = client.channels.cache.get(player.textChannel);
@@ -994,7 +995,13 @@ async function handleInteraction(client, i, player, channel) {
         case 'stopTrack':
             await cleanupTrackMessages(client, player);
             player.stop();
-            player.destroy();
+            await new Promise(resolve => setTimeout(resolve, 200));
+            if (!player.destroyed) {
+                player.destroy();
+            }
+            if (client.statusManager) {
+                await client.statusManager.onPlayerDisconnect(player.guildId).catch(() => {});
+            }
             await sendEmbed(channel, t.controls?.playbackStopped || '⏹️ **Playback has been stopped and player destroyed!**');
             break;
         case 'togglePlayback':
