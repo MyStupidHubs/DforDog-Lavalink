@@ -3,7 +3,7 @@ const { Riffy, Player } = require('riffy');
 const StatusManager = require('./statusManager.js');
 
 const LATE_DISCONNECT_WINDOW_MS = 4000;
-const JOIN_IN_PROGRESS_WINDOW_MS = 12000;
+const JOIN_BOOTSTRAP_WINDOW_MS = 4000;
 
 function getActualBotVoiceChannelId(client, guildId) {
     return client?.guilds?.cache?.get(guildId)?.members?.me?.voice?.channelId || null;
@@ -124,18 +124,24 @@ function installRiffyJoinRaceFix() {
             const joinAge = existingPlayer.__dfordogVoiceJoinStartedAt
                 ? Date.now() - existingPlayer.__dfordogVoiceJoinStartedAt
                 : Infinity;
+            const connection = existingPlayer.connection;
+            const connectionWorkInProgress = !!connection && (
+                connection.establishing === true ||
+                !!connection.pendingUpdate ||
+                !!connection.deferred
+            );
             const joiningNow = existingPlayer.connected !== true &&
-                !!existingPlayer.connection &&
-                joinAge <= JOIN_IN_PROGRESS_WINDOW_MS;
+                !!connection &&
+                (connectionWorkInProgress || joinAge <= JOIN_BOOTSTRAP_WINDOW_MS);
             const trulyStale = existingPlayer.__dfordogRetired === true ||
-                !existingPlayer.connection ||
+                !connection ||
                 (existingPlayer.connected !== true && !actualBotVoiceChannelId && !joiningNow);
 
             if (trulyStale) {
                 retireStalePlayerWithoutGatewayDisconnect(
                     this,
                     existingPlayer,
-                    !existingPlayer.connection
+                    !connection
                         ? 'missing connection object'
                         : 'not connected in Discord or Lavalink'
                 );
