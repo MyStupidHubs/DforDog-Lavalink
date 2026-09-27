@@ -28,8 +28,8 @@ module.exports = {
      {
     name: "DJForDog",
     password: "UHrg5iqJVE0",
-    host: "us-r5.visihost.in",
-    port: 2578,
+    host: "ash-1.visihost.in",
+    port: 2600,
     secure: false
     }
   ]
