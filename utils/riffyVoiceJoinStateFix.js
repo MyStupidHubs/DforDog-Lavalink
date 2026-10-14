@@ -196,7 +196,8 @@ function installRiffyJoinRaceFix() {
                 const lastRejoinAt = currentPlayer.__dfordogUnexpectedRejoinAt || 0;
                 const retryAllowed = !lastRejoinAt ||
                     now - lastRejoinAt >= UNEXPECTED_REJOIN_COOLDOWN_MS;
-                const activeTrack = currentPlayer.playing === true &&
+                const activeTrack = (currentPlayer.playing === true ||
+                    currentPlayer.paused === true) &&
                     !!currentPlayer.current && !!currentPlayer.connection;
 
                 if (!requestedLeave && retryAllowed && activeTrack && target &&
@@ -205,7 +206,8 @@ function installRiffyJoinRaceFix() {
                     !currentPlayer.__dfordogHandshakeRecovery) {
                     currentPlayer.__dfordogUnexpectedRejoinAt = now;
                     currentPlayer.connected = false;
-                    console.warn(`[ RIFFY VOICE ] Unexpected Discord voice leave in guild ${guildId} during active playback; rejoining ${target} without destroying the Lavalink player.`);
+                    const wasPaused = currentPlayer.paused === true;
+                    console.warn(`[ RIFFY VOICE ] Unexpected Discord voice leave in guild ${guildId}; playing=${currentPlayer.playing === true} paused=${wasPaused}, rejoining ${target} without destroying the Lavalink player.`);
 
                     const timer = setTimeout(() => {
                         if (this.players?.get(guildId) !== currentPlayer ||
@@ -213,6 +215,18 @@ function installRiffyJoinRaceFix() {
                             currentPlayer.__dfordogHandshakeDead === true) return;
 
                         try {
+                            // Riffy unpauses on VOICE_SERVER_UPDATE after a rejoin.
+                            // Restore the original user's paused state as soon as
+                            // the Lavalink connection confirms it is alive again.
+                            if (wasPaused) {
+                                currentPlayer.once('connectionRestored', () => {
+                                    if (this.players?.get(guildId) !== currentPlayer) return;
+                                    Promise.resolve(currentPlayer.pause(true)).catch((error) => {
+                                        console.warn(`[ RIFFY VOICE ] Could not restore paused track in guild ${guildId}: ${error?.message || error}`);
+                                    });
+                                });
+                            }
+
                             currentPlayer.connect({
                                 guildId,
                                 voiceChannel: target,
