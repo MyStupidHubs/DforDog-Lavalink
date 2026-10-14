@@ -1,4 +1,5 @@
-const { Riffy } = require('riffy');
+const { Riffy, Player } = require('riffy');
+const { retryInterruptedPlayback } = require('./earlyPlaybackRecovery.js');
 
 const TRACK_START_FALLBACK_MS = 1500;
 const REST_RECONCILE_INTERVAL_MS = 5000;
@@ -228,6 +229,23 @@ function installRiffyRestEventFallback(riffy) {
                     if (now - player.__dfordogRestRemoteEmptySince < REMOTE_EMPTY_CONFIRM_MS) continue;
                     if (player.__dfordogRestRecoveredEndAttempt === attemptId) continue;
 
+                    // A missing remote track well before its duration is often an
+                    // interrupted Lavalink stream, not a legitimate queueEnd.
+                    // Retry it once at its last position before allowing Riffy to
+                    // synthesize a normal "finished" event and disconnect.
+                    if (await retryInterruptedPlayback(player, remote, now)) {
+                        player.__dfordogRestRemoteEmptySince = null;
+                        continue;
+                    }
+
+                    // The REST request/retry awaited above may have raced another
+                    // /play. Never deliver an old TrackEndEvent to a newer player.
+                    if (riffy.players?.get(guildId) !== player ||
+                        player.current?.track !== localEncoded ||
+                        player.playing !== true) {
+                        continue;
+                    }
+
                     player.__dfordogRestRecoveredEndAttempt = attemptId;
                     player.__dfordogRestRemoteEmptySince = null;
 
@@ -257,6 +275,31 @@ function installRiffyRestEventFallback(riffy) {
 }
 
 function installPrototypePatch() {
+    // Riffy 1.0.12 handles TrackEndEvent against this.current instead of the
+    // event's encoded track. An old event arriving after /play or Skip can end
+    // the NEW track and cause an unexpected queueEnd/player DELETE.
+    if (Player?.prototype && !Player.prototype.__dfordogTrackEndIdentityGuardInstalled) {
+        const originalHandleEvent = Player.prototype.handleEvent;
+        Player.prototype.handleEvent = function(payload) {
+            if (payload?.type === 'TrackEndEvent') {
+                const eventEncoded = typeof payload.track === 'string'
+                    ? payload.track
+                    : (payload.track?.encoded || payload.track?.track || null);
+                const activeEncoded = this.current?.track || null;
+
+                if (eventEncoded && activeEncoded && eventEncoded !== activeEncoded) {
+                    console.warn(`[ RIFFY EVENT ] Ignoring stale TrackEndEvent in guild ${this.guildId}; ended track does not match active track.`);
+                    return;
+                }
+            }
+            return originalHandleEvent.call(this, payload);
+        };
+        Object.defineProperty(Player.prototype, '__dfordogTrackEndIdentityGuardInstalled', {
+            value: true,
+            configurable: false,
+            enumerable: false
+        });
+    }
     if (!Riffy?.prototype || Riffy.prototype.__dfordogRestEventFallbackPrototypeInstalled) return;
 
     const previousInit = Riffy.prototype.init;
