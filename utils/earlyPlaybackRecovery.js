@@ -21,7 +21,7 @@ function isEarlyPlaybackInterruption(player, now = Date.now()) {
 }
 
 async function retryInterruptedPlayback(player, remote, now = Date.now()) {
-    if (!isEarlyPlaybackInterruption(player, now)) return false;
+    if (player?.playing !== true || !isEarlyPlaybackInterruption(player, now)) return false;
 
     const guildId = player?.guildId;
     const currentTrack = player?.current;
