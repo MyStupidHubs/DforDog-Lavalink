@@ -404,6 +404,44 @@ async function initializePlayer(client) {
     client.lavalinkManager = nodeManager;
     client.nodeManager = nodeManager;
 
+    // Riffy 1.0.12 emits trackError (not trackException) and stops the
+    // Lavalink player immediately after dispatching it. Put one retry at the
+    // front of the queue BEFORE its stop() can trigger a queueEnd.
+    const failedTrackAttempts = new WeakMap();
+    const resumePositions = new WeakMap();
+    const retryInterruptedTrack = (player, track, cause) => {
+        if (!player?.guildId || !track?.track || !track?.info ||
+            client.riffy?.players?.get(player.guildId) !== player ||
+            player.current !== track || !player.queue ||
+            player.__dfordogIntentionalStop ||
+            player.__dfordogHandshakeRecovery) return false;
+
+        const position = Math.max(0, Number(player.position) || 0);
+        const length = Number(track.info.length) || 0;
+        if (length > 0 && length - position < 10000) return false;
+
+        const attempts = failedTrackAttempts.get(track) || 0;
+        if (attempts >= 1) return false;
+        failedTrackAttempts.set(track, attempts + 1);
+        resumePositions.set(track, length > 0 ? Math.min(position, length - 5000) : position);
+        player.queue.unshift(track);
+        console.warn(`[ RIFFY RECOVERY ] ${cause} for guild ${player.guildId}; retrying interrupted track once, from ~${Math.round(position / 1000)}s.`);
+
+        // Some Lavalink builds do not send TrackEndEvent after Riffy's stop().
+        // If the normal Riffy queue transition did not restart playback, do it.
+        const timer = setTimeout(() => {
+            if (client.riffy?.players?.get(player.guildId) !== player ||
+                player.playing === true || player.paused === true ||
+                player.__dfordogIntentionalStop || player.__dfordogHandshakeRecovery ||
+                player.queue?.[0] !== track) return;
+            Promise.resolve(player.play()).catch((error) => {
+                console.warn(`[ RIFFY RECOVERY ] Unable to retry guild ${player.guildId}: ${error?.message || error}`);
+            });
+        }, 1500);
+        timer.unref?.();
+        return true;
+    };
+
     client.riffy.on("nodeConnect", node => {
         console.log(`${colors.cyan}[ LAVALINK ]${colors.reset} ${colors.green}Node ${node.name} Connected ✅${colors.reset}`);
 
@@ -434,9 +472,11 @@ async function initializePlayer(client) {
         }
     });
 
-    client.riffy.on("trackException", async (player, error) => {
+    client.riffy.on("trackError", async (player, track, payload) => {
+        const retried = retryInterruptedTrack(player, track, 'TrackExceptionEvent');
         const langSync = getLangSync();
-        const errorMsg = error?.message || 'Unknown error';
+        const errorMsg = payload?.exception?.message || payload?.exception?.cause ||
+            payload?.message || 'Unknown error';
         const isTimeout = errorMsg.includes('timeout') || errorMsg.includes('Read timed out') || errorMsg.includes('SocketTimeoutException');
         
       
@@ -460,7 +500,7 @@ async function initializePlayer(client) {
             const trackErrorCard = cardFromMessage(
                 `${t.trackError?.title || '## ⚠️ Track Error'}\n\n` +
                 `${errorMessage}\n` +
-                `${t.trackError?.skipping || 'Skipping to next song...'}`,
+                `${retried ? 'Retrying the interrupted track once...' : (t.trackError?.skipping || 'Skipping to next song...')}`,
                 'Track Error'
             );
             channel.send({ 
@@ -470,18 +510,14 @@ async function initializePlayer(client) {
                 if (msg) setTimeout(() => msg.delete().catch(() => {}), 5000);
             });
         }
-        if (player && !player.destroyed) {
-            try {
-                player.stop();
-            } catch (stopError) {
-                // Ignore errors when stopping
-            }
-        }
+        // Native Riffy trackError() already calls stop() after emitting this
+        // event. A second stop here raced with queue transitions.
     });
 
-    client.riffy.on("trackStuck", (player, error) => {
+    client.riffy.on("trackStuck", (player, track, payload) => {
+        retryInterruptedTrack(player, track, 'TrackStuckEvent');
         const lang = getLangSync();
-        const errorMsg = error?.message || 'Unknown error';
+        const errorMsg = payload?.message || `stuck after ${payload?.thresholdMs || '?'}ms`;
         
         // Don't log connection timeout errors as critical (they're handled elsewhere)
         if (errorMsg.includes('Connect Timeout') || errorMsg.includes('fetch failed') || errorMsg.includes('timeout')) {
@@ -490,17 +526,25 @@ async function initializePlayer(client) {
             console.error(`${colors.cyan}[ LAVALINK ]${colors.reset} ${colors.red}${lang.console?.player?.trackStuck?.replace('{guildId}', player?.guildId || 'unknown').replace('{message}', errorMsg) || `Track Stuck for guild ${player?.guildId || 'unknown'}: ${errorMsg}`}${colors.reset}`);
         }
         
-        // Only stop if player is valid and not destroyed
-        if (player && !player.destroyed) {
-            try {
-                player.stop();
-            } catch (stopError) {
-                // Ignore errors when stopping stuck track
-            }
-        }
+        // Native Riffy trackStuck() handles stop(). Our queued retry is
+        // advanced by its TrackEndEvent, or by the fallback timer above.
     });
 
     client.riffy.on("trackStart", async (player, track) => {
+        const resumeAt = track && resumePositions.get(track);
+        if (resumeAt !== undefined) {
+            resumePositions.delete(track);
+            if (resumeAt > 0) {
+                const timer = setTimeout(() => {
+                    if (client.riffy?.players?.get(player.guildId) === player &&
+                        player.current === track && player.playing === true) {
+                        try { player.seek(Math.max(0, resumeAt - 1500)); }
+                        catch (error) { console.warn(`[ RIFFY RECOVERY ] Seek after retry failed: ${error?.message || error}`); }
+                    }
+                }, 500);
+                timer.unref?.();
+            }
+        }
         if (!track || !track.info) {
             const lang = getLangSync();
             console.error(`[ LAVALINK ] ${lang.console?.player?.trackNull?.replace('{guildId}', player.guildId) || `Track is null or missing info for guild ${player.guildId} - ignoring event`}`);
