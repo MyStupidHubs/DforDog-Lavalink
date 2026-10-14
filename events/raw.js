@@ -47,7 +47,14 @@ module.exports = (client, packet) => {
     // Native Riffy cleanup happens asynchronously. Give it time to finish,
     // then verify BOTH player identity and Discord's latest voice state.
     const timer = setTimeout(() => {
-        if (riffy.players?.get(guildId) !== player || !player.connection) return;
+        if (riffy.players?.get(guildId) !== player) return;
+        if (!player.connection) {
+            // Native cleanup already discarded the connection but left a map
+            // entry. Only retire that exact obsolete entry; never send DELETE
+            // for a replacement player sharing this guild ID.
+            riffy.players.delete(guildId);
+            return;
+        }
         if (isRecovering() || isOldDisconnectAcknowledgement()) return;
 
         const actualVoiceChannelId = client.guilds?.cache?.get(guildId)
