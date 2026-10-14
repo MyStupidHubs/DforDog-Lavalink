@@ -98,7 +98,7 @@ function installStalePlayerEventGuard(client) {
             // dangerous race where an old async cleanup tries to destroy a player that
             // has already resumed with a new track.
             const caller = new Error('destroy caller').stack
-                ?.split('\\n')
+                ?.split('\n')
                 .slice(2, 7)
                 .map(line => line.trim())
                 .join(' <- ') || 'unknown';
