@@ -9,8 +9,25 @@ function getTrackKey(track) {
     return track?.info?.identifier || track?.info?.uri || track?.track || null;
 }
 
+function traceLavalinkPlayerDeletion(node) {
+    const rest = node?.rest;
+    if (!rest || rest.__dfordogDeleteTraceInstalled ||
+        typeof rest.destroyPlayer !== 'function') return;
+
+    const originalDestroyPlayer = rest.destroyPlayer.bind(rest);
+    rest.destroyPlayer = function(guildId, ...args) {
+        const stack = new Error('Lavalink DELETE request').stack
+            ?.split('\n').slice(2, 8).map(line => line.trim()).join(' <- ') || 'unknown';
+        // Never log Lavalink credentials, WebSocket tokens, or REST payloads.
+        console.warn(`[ LAVALINK DELETE TRACE ] guild=${guildId} node=${node.name || node.host || 'unknown'} caller=${stack}`);
+        return originalDestroyPlayer(guildId, ...args);
+    };
+    rest.__dfordogDeleteTraceInstalled = true;
+}
+
 function attachNodeSocketActivity(node) {
     if (!node) return;
+    traceLavalinkPlayerDeletion(node);
 
     const attach = () => {
         const ws = node.ws;
