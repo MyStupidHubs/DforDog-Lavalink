@@ -111,6 +111,34 @@ function installStalePlayerEventGuard(client) {
             return originalDestroy(...args);
         };
 
+        // Trace requests to leave Discord even when they do not originate
+        // from player.destroy() (handshake retry, reconnect code, etc).
+        if (!player.__dfordogVoiceSendTraceInstalled && typeof player.send === 'function') {
+            const originalSend = player.send.bind(player);
+            player.send = function(payload) {
+                if (payload?.channel_id === null) {
+                    const stack = new Error('Discord voice leave request').stack
+                        ?.split('\n').slice(2, 8).map(line => line.trim()).join(' <- ') || 'unknown';
+                    console.warn(`[ RIFFY VOICE TRACE ] Outgoing Discord voice leave guild=${this.guildId} caller=${stack}`);
+                }
+                return originalSend(payload);
+            };
+            player.__dfordogVoiceSendTraceInstalled = true;
+        }
+
+        // Track who paused/resumed the bot, since a paused player is still an
+        // active voice session and must not be mistaken for an empty queue.
+        if (!player.__dfordogPauseTraceInstalled && typeof player.pause === 'function') {
+            const originalPause = player.pause.bind(player);
+            player.pause = function(toggle = true, ...args) {
+                const stack = new Error('pause caller').stack
+                    ?.split('\n').slice(2, 7).map(line => line.trim()).join(' <- ') || 'unknown';
+                console.log(`[ RIFFY PAUSE TRACE ] guild=${this.guildId} paused=${toggle === true} caller=${stack}`);
+                return originalPause(toggle, ...args);
+            };
+            player.__dfordogPauseTraceInstalled = true;
+        }
+
         player.__activePlaybackDestroyGuardInstalled = true;
     };
 
@@ -358,6 +386,12 @@ loadCommands();
 client.on("raw", (d) => {
     const { GatewayDispatchEvents } = require("discord.js");
     if (![GatewayDispatchEvents.VoiceStateUpdate, GatewayDispatchEvents.VoiceServerUpdate].includes(d.t)) return;
+    if (d.t === GatewayDispatchEvents.VoiceStateUpdate &&
+        d.d?.user_id === client.user?.id) {
+        const player = client.riffy?.players?.get(d.d?.guild_id);
+        console.log(`[ RIFFY VOICE TRACE ] Bot gateway state guild=${d.d?.guild_id || 'none'} channel=${d.d?.channel_id || 'none'} mapped=${!!player} playing=${player?.playing === true} paused=${player?.paused === true} reconnecting=${!!player?.__dfordogHandshakeRecovery}`);
+    }
+
     if (config.voiceDebug === true) {
         if (d.t === GatewayDispatchEvents.VoiceStateUpdate) {
             const isBot = d.d?.user_id === client.user?.id;
@@ -366,7 +400,13 @@ client.on("raw", (d) => {
             console.log(`[ VOICE DEBUG ] raw=${d.t} guild=${d.d?.guild_id || 'null'} endpoint=${d.d?.endpoint ? 'yes' : 'no'} token=${d.d?.token ? 'yes' : 'no'}`);
         }
     }
-    client.riffy.updateVoiceState(d);
+    try {
+        Promise.resolve(client.riffy.updateVoiceState(d)).catch((error) => {
+            console.error(`[ RIFFY VOICE TRACE ] Gateway update failed guild=${d.d?.guild_id || 'none'} type=${d.t}: ${error?.stack || error}`);
+        });
+    } catch (error) {
+        console.error(`[ RIFFY VOICE TRACE ] Gateway update threw guild=${d.d?.guild_id || 'none'} type=${d.t}: ${error?.stack || error}`);
+    }
 });
 
 client.login(config.TOKEN || process.env.TOKEN).catch((e) => {
