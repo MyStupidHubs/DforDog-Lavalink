@@ -475,8 +475,8 @@ async function initializePlayer(client) {
     client.riffy.on("trackError", async (player, track, payload) => {
         const retried = retryInterruptedTrack(player, track, 'TrackExceptionEvent');
         const langSync = getLangSync();
-        const errorMsg = payload?.exception?.message || payload?.exception?.cause ||
-            payload?.message || 'Unknown error';
+        const errorMsg = String(payload?.exception?.message || payload?.exception?.cause ||
+            payload?.message || 'Unknown error');
         const isTimeout = errorMsg.includes('timeout') || errorMsg.includes('Read timed out') || errorMsg.includes('SocketTimeoutException');
         
       
@@ -803,7 +803,9 @@ async function initializePlayer(client) {
                 if (!queueStillEnded()) return;
 
                 const nextTrack = await player.autoplay(player);
-                if (!nextTrack) {
+                // Riffy may return the same player even when autoplay found no
+                // candidate; in that case it is idle, not a successful play.
+                if (!nextTrack || (player.playing !== true && (player.queue?.length || 0) === 0)) {
                     if (!queueStillEnded()) return;
                     await cleanupTrackMessages(client, player);
                     const lang = await getLang(guildId).catch(() => ({ console: { player: {} } }));
