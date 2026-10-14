@@ -4,6 +4,8 @@ const StatusManager = require('./statusManager.js');
 
 const LATE_DISCONNECT_WINDOW_MS = 4000;
 const JOIN_BOOTSTRAP_WINDOW_MS = 4000;
+const UNEXPECTED_REJOIN_DELAY_MS = 250;
+const UNEXPECTED_REJOIN_COOLDOWN_MS = 60000;
 
 function getActualBotVoiceChannelId(client, guildId) {
     return client?.guilds?.cache?.get(guildId)?.members?.me?.voice?.channelId || null;
@@ -178,6 +180,51 @@ function installRiffyJoinRaceFix() {
                 if (markerAge <= LATE_DISCONNECT_WINDOW_MS && replacementStartedAfterDisconnect) {
                     this.__dfordogVoiceDisconnectRequests.delete(guildId);
                     console.warn(`[ RIFFY JOIN ] Ignored delayed channel_id=null for old player in guild ${guildId}; replacement join is already in progress.`);
+                    return;
+                }
+            }
+
+            // Riffy 1.0.12 destroys the player immediately for every bot
+            // channel_id=null event. On a spontaneous Discord voice drop that
+            // also destroys the queue and sends DELETE to Lavalink. Preserve
+            // active playback and ask Discord to join again instead.
+            if (packet.d.channel_id == null && currentPlayer) {
+                const now = Date.now();
+                const requestedLeave = disconnectMarker?.player === currentPlayer &&
+                    now - disconnectMarker.at <= 15000;
+                const target = currentPlayer.voiceChannel || currentPlayer.connection?.voiceChannel;
+                const lastRejoinAt = currentPlayer.__dfordogUnexpectedRejoinAt || 0;
+                const retryAllowed = !lastRejoinAt ||
+                    now - lastRejoinAt >= UNEXPECTED_REJOIN_COOLDOWN_MS;
+                const activeTrack = currentPlayer.playing === true &&
+                    !!currentPlayer.current && !!currentPlayer.connection;
+
+                if (!requestedLeave && retryAllowed && activeTrack && target &&
+                    currentPlayer.__dfordogRetired !== true &&
+                    currentPlayer.__dfordogHandshakeDead !== true &&
+                    !currentPlayer.__dfordogHandshakeRecovery) {
+                    currentPlayer.__dfordogUnexpectedRejoinAt = now;
+                    currentPlayer.connected = false;
+                    console.warn(`[ RIFFY VOICE ] Unexpected Discord voice leave in guild ${guildId} during active playback; rejoining ${target} without destroying the Lavalink player.`);
+
+                    const timer = setTimeout(() => {
+                        if (this.players?.get(guildId) !== currentPlayer ||
+                            currentPlayer.__dfordogRetired === true ||
+                            currentPlayer.__dfordogHandshakeDead === true) return;
+
+                        try {
+                            currentPlayer.connect({
+                                guildId,
+                                voiceChannel: target,
+                                textChannel: currentPlayer.textChannel,
+                                deaf: currentPlayer.deaf ?? true,
+                                mute: currentPlayer.mute ?? false
+                            });
+                        } catch (error) {
+                            console.warn(`[ RIFFY VOICE ] Unexpected voice rejoin failed for guild ${guildId}: ${error?.message || error}`);
+                        }
+                    }, UNEXPECTED_REJOIN_DELAY_MS);
+                    timer.unref?.();
                     return;
                 }
             }
