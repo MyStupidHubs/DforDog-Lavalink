@@ -1,54 +1,73 @@
 const { GatewayDispatchEvents } = require('discord.js');
 
+const FALLBACK_CLEANUP_DELAY_MS = 900;
+const LATE_DISCONNECT_WINDOW_MS = 4000;
+const HANDSHAKE_WINDOW_MS = 8000;
+
 /**
- * Riffy 1.0.12 destroys a player when Discord reports the bot's own
- * VOICE_STATE_UPDATE with channel_id=null.
+ * The main bot.js raw listener delegates voice events to Riffy. This listener
+ * is ONLY a safety net if Riffy leaves a disconnected player mapped.
  *
- * The lifecycle guard in bot.js may intentionally block a destroy while
- * player.playing is still true. That is useful for stale application cleanup,
- * but a real Discord voice disconnect must never leave the mapped player alive.
- *
- * This event listener runs after the main raw handler. If the normal Riffy
- * cleanup was blocked and the player is still mapped, force the same cleanup
- * with the local playing flag cleared so the destroy guard allows it.
+ * Never immediately destroy on channel_id=null: v11/v12 deliberately ignore
+ * delayed old-player acknowledgements and temporary leave/rejoin packets.
+ * The previous unconditional destroy undid those protections and could DELETE
+ * a healthy replacement player while it was playing music.
  */
-module.exports = async (client, packet) => {
+module.exports = (client, packet) => {
     if (packet?.t !== GatewayDispatchEvents.VoiceStateUpdate) return;
-    if (packet.d?.user_id !== client.user?.id) return;
-    if (packet.d?.channel_id !== null) return;
+    if (packet.d?.user_id !== client.user?.id || packet.d?.channel_id != null) return;
 
     const guildId = packet.d?.guild_id;
     if (!guildId) return;
 
-    const player = client.riffy?.players?.get(guildId);
+    const riffy = client.riffy;
+    const player = riffy?.players?.get(guildId);
     if (!player) return;
 
-    console.warn(
-        `[ RIFFY VOICE ] Discord confirmed bot disconnected from voice in guild ${guildId}; ` +
-        'forcing cleanup of the remaining Riffy player.'
-    );
+    const isRecovering = () => {
+        const marker = player.__dfordogHandshakeRecovery;
+        return !!marker &&
+            Date.now() - marker.startedAt <= HANDSHAKE_WINDOW_MS &&
+            (marker.phase === 'leaving' || marker.phase === 'rejoining');
+    };
 
-    // This is not a speculative/stale application cleanup: Discord has already
-    // confirmed that the bot is no longer in a voice channel. Clear only local
-    // playback flags so the v3 destroy guard cannot leave a zombie player.
-    player.playing = false;
-    player.paused = false;
+    const isOldDisconnectAcknowledgement = () => {
+        const marker = riffy.__dfordogVoiceDisconnectRequests?.get(guildId);
+        return !!marker &&
+            marker.player !== player &&
+            Date.now() - marker.at <= LATE_DISCONNECT_WINDOW_MS &&
+            (player.__dfordogVoiceJoinStartedAt || 0) >= marker.at;
+    };
 
-    try {
-        player.destroy();
-    } catch (error) {
-        console.error(`[ RIFFY VOICE ] Failed to destroy disconnected player for guild ${guildId}:`, error);
-
-        // Last-resort map cleanup so createConnection() cannot keep returning a
-        // disconnected player forever on the next /play.
-        try {
-            if (client.riffy?.players?.get(guildId) === player) {
-                client.riffy.players.delete(guildId);
-            }
-        } catch (_) {}
-
-        if (client.statusManager) {
-            await client.statusManager.onPlayerDisconnect(guildId).catch(() => {});
-        }
+    if (isRecovering() || isOldDisconnectAcknowledgement()) {
+        console.warn(`[ RIFFY VOICE ] Ignoring expected recovery/stale voice-leave acknowledgement for guild ${guildId}.`);
+        return;
     }
+
+    // Native Riffy cleanup happens asynchronously. Give it time to finish,
+    // then verify BOTH player identity and Discord's latest voice state.
+    const timer = setTimeout(() => {
+        if (riffy.players?.get(guildId) !== player || !player.connection) return;
+        if (isRecovering() || isOldDisconnectAcknowledgement()) return;
+
+        const actualVoiceChannelId = client.guilds?.cache?.get(guildId)
+            ?.members?.me?.voice?.channelId || null;
+        if (actualVoiceChannelId) {
+            console.warn(`[ RIFFY VOICE ] Ignoring outdated channel_id=null for guild ${guildId}; bot remains in voice channel ${actualVoiceChannelId}.`);
+            return;
+        }
+
+        console.warn(`[ RIFFY VOICE ] Confirmed disconnect left a stale Riffy player in guild ${guildId}; performing fallback cleanup.`);
+        player.playing = false;
+        player.paused = false;
+
+        try {
+            player.destroy();
+        } catch (error) {
+            console.error(`[ RIFFY VOICE ] Fallback cleanup failed for guild ${guildId}:`, error);
+            if (riffy.players?.get(guildId) === player) riffy.players.delete(guildId);
+        }
+    }, FALLBACK_CLEANUP_DELAY_MS);
+
+    timer.unref?.();
 };
