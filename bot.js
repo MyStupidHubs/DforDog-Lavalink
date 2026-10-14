@@ -97,18 +97,18 @@ function installStalePlayerEventGuard(client) {
             // so playing=false and the destroy is allowed. This guard only blocks the
             // dangerous race where an old async cleanup tries to destroy a player that
             // has already resumed with a new track.
-            if (isCurrentPlayer && isActivelyPlaying && botVoiceChannelId && nodeConnected) {
-                const caller = new Error('destroy caller').stack
-                    ?.split('\n')
-                    .slice(2, 7)
-                    .map(line => line.trim())
-                    .join(' <- ') || 'unknown';
+            const caller = new Error('destroy caller').stack
+                ?.split('\\n')
+                .slice(2, 7)
+                .map(line => line.trim())
+                .join(' <- ') || 'unknown';
 
+            if (isCurrentPlayer && isActivelyPlaying && botVoiceChannelId && nodeConnected) {
                 console.warn(`${colors.cyan}[ RIFFY ]${colors.reset} ${colors.yellow}Blocked unsafe destroy for guild ${guildId}; player is actively playing "${activeTrack}" in voice channel ${botVoiceChannelId}. caller=${caller}${colors.reset}`);
                 return this;
             }
 
-            console.log(`${colors.cyan}[ RIFFY ]${colors.reset} Destroy allowed for guild ${guildId}; playing=${this.playing === true} voice=${botVoiceChannelId || 'none'} current=${activeTrack}`);
+            console.log(`${colors.cyan}[ RIFFY ]${colors.reset} Destroy allowed for guild ${guildId}; playing=${this.playing === true} voice=${botVoiceChannelId || 'none'} current=${activeTrack} caller=${caller}`);
             return originalDestroy(...args);
         };
 
