@@ -398,6 +398,59 @@ async function sendTransientCard(channel, message, deleteMs = 5000, fallbackTitl
     return sent;
 }
 
+/**
+ * queueEnd can be emitted for an old/incorrect TrackEndEvent even while Lavalink
+ * is still playing. Never DELETE an active remote player solely because Riffy
+ * flipped its local playing flag to false.
+ */
+async function shouldIgnoreStaleQueueEnd(client, player, endedTrack) {
+    if (!player || client.riffy?.players?.get(player.guildId) !== player || player.destroyed) {
+        return true;
+    }
+
+    if (player.playing === true || player.queue?.length > 0 ||
+        (endedTrack && player.current?.track && player.current.track !== endedTrack)) {
+        console.warn(`[ RIFFY QUEUE ] Ignoring superseded queueEnd for guild ${player.guildId}; local playback/queue has advanced.`);
+        return true;
+    }
+
+    const rest = player.node?.rest;
+    if (typeof rest?.getPlayers !== 'function') return false;
+
+    try {
+        const remotePlayers = await rest.getPlayers();
+        if (!Array.isArray(remotePlayers)) {
+            console.warn(`[ RIFFY QUEUE ] Deferring queueEnd for guild ${player.guildId}; Lavalink REST returned an invalid player list.`);
+            return true;
+        }
+
+        // REST can race /play, autoplay or a replacement player.
+        if (client.riffy?.players?.get(player.guildId) !== player || player.playing === true ||
+            player.queue?.length > 0 ||
+            (endedTrack && player.current?.track && player.current.track !== endedTrack)) {
+            return true;
+        }
+
+        const remote = remotePlayers.find(item => String(item?.guildId) === String(player.guildId));
+        const remoteTrack = remote?.track?.encoded || remote?.track?.track || null;
+        const botChannelId = client.guilds?.cache?.get(player.guildId)
+            ?.members?.me?.voice?.channelId || null;
+
+        if (remoteTrack && botChannelId) {
+            if (!endedTrack || remoteTrack === endedTrack) {
+                player.playing = true;
+            }
+            console.warn(`[ RIFFY QUEUE ] Blocking premature player DELETE for guild ${player.guildId}; Lavalink still has a track and Discord still has the bot in voice.`);
+            return true;
+        }
+    } catch (error) {
+        console.warn(`[ RIFFY QUEUE ] Deferring queueEnd for guild ${player.guildId}; remote playback check failed: ${error?.message || error}`);
+        return true;
+    }
+
+    return false;
+}
+
 async function initializePlayer(client) {
     const nodeManager = await initializeLavalinkManager(client);
     client.riffy = nodeManager.riffy;
@@ -712,11 +765,14 @@ async function initializePlayer(client) {
     client.riffy.on("queueEnd", async (player) => {
         const channel = client.channels.cache.get(player.textChannel);
         const guildId = player.guildId;
+        const endedTrack = player.current?.track || null;
+        if (await shouldIgnoreStaleQueueEnd(client, player, endedTrack)) return;
         clearTrackMediaCache(guildId);
     
         try {
             const settings = await autoplayCollection.findOne({ guildId });
             const is24_7 = settings?.twentyfourseven;
+            if (await shouldIgnoreStaleQueueEnd(client, player, endedTrack)) return;
     
             if (settings?.autoplay) {
                 await cleanupPreviousTrackMessages(channel, guildId);
@@ -728,6 +784,7 @@ async function initializePlayer(client) {
                     const lang = await getLang(guildId).catch(() => ({ console: { player: {} } }));
                     const t = lang.console?.player || {};
                     if (!is24_7) {
+                        if (await shouldIgnoreStaleQueueEnd(client, player, endedTrack)) return;
                         player.destroy();
                         await sendTransientCard(channel, t.queueEnd?.noMoreAutoplay || "⚠️ **No more tracks to autoplay. Disconnecting...**", 5000, 'Autoplay Ended');
                     } else {
@@ -741,6 +798,7 @@ async function initializePlayer(client) {
                 const langSync = getLangSync();
                 console.log(langSync.console?.player?.autoplayDisabled?.replace('{guildId}', guildId) || `Autoplay is disabled for guild: ${guildId}`);
                 if (!is24_7) {
+                    if (await shouldIgnoreStaleQueueEnd(client, player, endedTrack)) return;
                     player.destroy();
                     await sendTransientCard(channel, t.queueEnd?.queueEndedAutoplayDisabled || "🎶 **Queue has ended. Autoplay is disabled.**", 5000, 'Queue Ended');
                 } else {
@@ -755,6 +813,7 @@ async function initializePlayer(client) {
             const lang = await getLang(guildId).catch(() => ({ console: { player: {} } }));
             const t = lang.console?.player || {};
             if (!settings?.twentyfourseven) {
+                if (await shouldIgnoreStaleQueueEnd(client, player, endedTrack)) return;
                 player.destroy();
                 await sendTransientCard(channel, t.queueEnd?.queueEmpty || "👾 **Queue Empty! Disconnecting...**", 5000, 'Queue Empty');
             }
