@@ -1,6 +1,7 @@
 const { MessageFlags } = require('discord.js');
 const { getLang } = require('./languageLoader.js');
 const { cardFromMessage } = require('./responseHandler.js');
+const { getActualBotVoiceChannelId } = require('./riffyVoiceJoinStateFix.js');
 
 async function checkVoiceChannel(interaction, player) {
 
@@ -40,8 +41,11 @@ async function checkVoiceChannel(interaction, player) {
         };
     }
 
-    if (player && player.voiceChannel && interaction.member.voice.channelId !== player.voiceChannel) {
-        const botChannel = interaction.guild.channels.cache.get(player.voiceChannel);
+    // Riffy's Player.voiceChannel can outlive the actual Discord connection.
+    // Use the bot's current gateway voice state rather than an old target.
+    const botVoiceChannelId = getActualBotVoiceChannelId(interaction.client, interaction.guildId);
+    if (botVoiceChannelId && interaction.member.voice.channelId !== botVoiceChannelId) {
+        const botChannel = interaction.guild.channels.cache.get(botVoiceChannelId);
         const channelName = botChannel ? botChannel.name : 'the bot\'s voice channel';
 
         const errorContainer = cardFromMessage(
@@ -57,6 +61,9 @@ async function checkVoiceChannel(interaction, player) {
                 flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
             }
         };
+    }
+    if (player?.voiceChannel && !botVoiceChannelId) {
+        console.warn(`[ RIFFY VOICE ] Ignoring stale channel ${player.voiceChannel} for guild ${interaction.guildId}; Discord shows the bot outside voice.`);
     }
     return { allowed: true };
 }
