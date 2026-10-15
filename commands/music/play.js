@@ -39,10 +39,14 @@ const spotifyApi = new SpotifyWebApi({
     clientSecret: config.spotifyClientSecret,
 });
 
-async function waitForPlayerConnection(player, timeoutMs = 7000) {
+async function waitForPlayerConnection(client, player, timeoutMs = 12000) {
     const startedAt = Date.now();
     while (Date.now() - startedAt < timeoutMs) {
-        if (player?.connected) {
+        // local connected=true is insufficient: it can survive after Discord
+        // has already removed the bot from voice.
+        const actualChannel = getActualBotVoiceChannelId(client, player?.guildId);
+        if (player?.connected === true && actualChannel &&
+            actualChannel === (player.voiceChannel || player.connection?.voiceChannel)) {
             return true;
         }
         await new Promise((resolve) => setTimeout(resolve, 150));
@@ -375,13 +379,13 @@ module.exports = {
                 console.warn(`Playlist truncated: ${tracksToQueue.length} tracks requested, only ${maxTracks} queued`);
             }
 
-            const connected = await waitForPlayerConnection(player);
+            const connected = await waitForPlayerConnection(client, player);
             if (!connected) {
                 throw new Error('Voice connection was not established. The bot did not join the voice channel.');
             }
 
             if (!player.playing && !player.paused) {
-                player.play();
+                await player.play();
             }
 
             const successTitle = isPlaylist ? t.success.titlePlaylist : t.success.titleTrack;
