@@ -4,6 +4,8 @@ const SpotifyWebApi = require('spotify-web-api-node');
 const { getData } = require('spotify-url-info')(require('node-fetch'));
 const { sendErrorResponse, handleCommandError, safeDeferReply, buildPaleCard, sanitizeTitle, stripLeadingIcons } = require('../../utils/responseHandler.js');
 const { checkVoiceChannel: checkVC } = require('../../utils/voiceChannelCheck.js');
+const { getActualBotVoiceChannelId, retireStalePlayerWithoutGatewayDisconnect } = require('../../utils/riffyVoiceJoinStateFix.js');
+const { waitForPendingPlayerDelete } = require('../../utils/riffyVoiceLifecycleFix.js');
 const { getLavalinkManager } = require('../../lavalink.js');
 const { getLang } = require('../../utils/languageLoader');
 const { getEmoji } = require('../../UI/emojis/emoji');
@@ -38,15 +40,185 @@ const spotifyApi = new SpotifyWebApi({
     clientSecret: config.spotifyClientSecret,
 });
 
-async function waitForPlayerConnection(player, timeoutMs = 7000) {
+async function waitForPlayerConnection(client, player, timeoutMs = 12000) {
     const startedAt = Date.now();
     while (Date.now() - startedAt < timeoutMs) {
-        if (player?.connected) {
+        // local connected=true is insufficient: it can survive after Discord
+        // has already removed the bot from voice.
+        const actualChannel = getActualBotVoiceChannelId(client, player?.guildId);
+        if (player?.connected === true && actualChannel &&
+            actualChannel === (player.voiceChannel || player.connection?.voiceChannel)) {
             return true;
         }
         await new Promise((resolve) => setTimeout(resolve, 150));
     }
     return false;
+}
+
+
+const voiceJoinLocks = new Map();
+
+async function withGuildVoiceJoinLock(guildId, task) {
+    const previous = voiceJoinLocks.get(guildId) || Promise.resolve();
+    const current = previous.catch(() => {}).then(task);
+    voiceJoinLocks.set(guildId, current);
+
+    try {
+        return await current;
+    } finally {
+        if (voiceJoinLocks.get(guildId) === current) {
+            voiceJoinLocks.delete(guildId);
+        }
+    }
+}
+
+async function getOrCreateVoicePlayer(client, interaction, nodeManager, userVoiceChannel, forceFresh = false) {
+    const guildId = interaction.guildId;
+
+    return withGuildVoiceJoinLock(guildId, async () => {
+        // Riffy Player.destroy() does not await its HTTP DELETE. If /play
+        // starts while that request is still in flight, it can delete the
+        // freshly created player on the Lavalink side.
+        await waitForPendingPlayerDelete(guildId);
+        const actualBotVoiceChannelId = getActualBotVoiceChannelId(client, guildId);
+        // The command has already checked this, but another user may have
+        // moved the bot while node availability was being checked.
+        if (actualBotVoiceChannelId && actualBotVoiceChannelId !== userVoiceChannel) {
+            throw new Error('Bot moved to another voice channel; join its channel before running /play.');
+        }
+
+        const oldPlayer = client.riffy.players.get(guildId);
+        if (oldPlayer) {
+            const now = Date.now();
+            const joinAge = now - (oldPlayer.__dfordogVoiceJoinStartedAt || 0);
+            const unexpectedRejoinAge = now - (oldPlayer.__dfordogUnexpectedRejoinAt || 0);
+            const recoveryAge = now - (oldPlayer.__dfordogHandshakeRecovery?.startedAt || 0);
+            const confirmedLeaveAfterJoin = !!oldPlayer.__dfordogBotVoiceLeftAt &&
+                oldPlayer.__dfordogBotVoiceLeftAt > (oldPlayer.__dfordogBotVoiceJoinedAt || 0) &&
+                !oldPlayer.__dfordogHandshakeRecovery;
+            const joinInProgress = !!oldPlayer.connection && !confirmedLeaveAfterJoin &&
+                (joinAge < 12000 || unexpectedRejoinAge < 12000 ||
+                    (oldPlayer.__dfordogHandshakeRecovery && recoveryAge < 12000));
+            const target = oldPlayer.voiceChannel || oldPlayer.connection?.voiceChannel || null;
+            const absentFromDiscord = !actualBotVoiceChannelId && !joinInProgress;
+            const wrongStoredChannel = !!actualBotVoiceChannelId &&
+                target !== actualBotVoiceChannelId && !joinInProgress;
+            const incomplete = !oldPlayer.connection ||
+                oldPlayer.__dfordogRetired === true || oldPlayer.__dfordogHandshakeDead === true;
+
+            if (forceFresh || absentFromDiscord || wrongStoredChannel || incomplete) {
+                console.warn('[ RIFFY PLAY ] Stale voice player detected guild=' + guildId +
+                    ' DiscordChannel=' + (actualBotVoiceChannelId || 'none') +
+                    ' RiffyChannel=' + (target || 'none') +
+                    ' localConnected=' + (oldPlayer.connected === true) +
+                    ' confirmedLeave=' + confirmedLeaveAfterJoin +
+                    ' forceFresh=' + forceFresh);
+
+                // Invalidate and await the OLD Lavalink player deletion before
+                // creating the replacement. Never send Discord channel_id=null:
+                // a delayed leave acknowledgment can disconnect the new join.
+                const { cleanupTrackMessages } = require('../../player.js');
+                await cleanupTrackMessages(client, oldPlayer).catch((error) => {
+                    console.warn('[ RIFFY PLAY ] Old track card cleanup failed: ' + (error?.message || error));
+                });
+                if (client.riffy.players.get(guildId) === oldPlayer) {
+                    const retired = await retireStalePlayerWithoutGatewayDisconnect(
+                        client.riffy, oldPlayer, 'Discord voice no longer matches the Riffy player'
+                    );
+                    if (retired === false) {
+                        throw new Error('Lavalink could not remove the previous disconnected player');
+                    }
+                }
+            }
+        }
+
+        await nodeManager.checkAllNodesHealth().catch(() => {});
+        await nodeManager.forceConnectAllNodes().catch(() => {});
+        await new Promise(resolve => setTimeout(resolve, 400));
+
+        // Recheck after other health tasks: a late old DELETE must be fully
+        // complete before allocating the new player for this guild.
+        await waitForPendingPlayerDelete(guildId);
+
+        let player;
+        let attempts = 0;
+        const maxAttempts = 3;
+        while (attempts < maxAttempts) {
+            await nodeManager.ensureNodeAvailable();
+            try {
+                player = client.riffy.createConnection({
+                    guildId,
+                    voiceChannel: userVoiceChannel,
+                    textChannel: interaction.channelId,
+                    deaf: true
+                });
+                break;
+            } catch (err) {
+                attempts++;
+                const msg = err?.message || '';
+                if (attempts < maxAttempts &&
+                    (msg.includes('No nodes are available') || msg.includes('fetch failed'))) {
+                    await nodeManager.reconnectNodesNow?.(5000).catch(() => {});
+                    await nodeManager.ensureNodeAvailable();
+                    await new Promise(resolve => setTimeout(resolve, 700));
+                    continue;
+                }
+                if (attempts >= maxAttempts) {
+                    await nodeManager.refreshRiffy?.();
+                    await nodeManager.ensureNodeAvailable();
+                    player = client.riffy.createConnection({
+                        guildId,
+                        voiceChannel: userVoiceChannel,
+                        textChannel: interaction.channelId,
+                        deaf: true
+                    });
+                    break;
+                }
+                throw err;
+            }
+        }
+        if (!player) throw new Error('Unable to create a Lavalink voice player.');
+        return player;
+    });
+}
+
+async function getConnectedVoicePlayer(client, interaction, nodeManager, targetChannel) {
+    let player = await getOrCreateVoicePlayer(client, interaction, nodeManager, targetChannel);
+    if (await waitForPlayerConnection(client, player, 8000)) return player;
+
+    const actual = getActualBotVoiceChannelId(client, interaction.guildId);
+    if (actual && actual !== targetChannel) {
+        throw new Error('The bot is currently connected to another voice channel.');
+    }
+
+    if (actual) {
+        // The bot is visibly in the requested Discord channel, but Lavalink
+        // did not confirm the voice handshake. Re-arm Riffy's native v12
+        // controlled handshake recovery ONCE, preserving the player/queue.
+        if (client.riffy.players.get(interaction.guildId) === player &&
+            player.connection && typeof player.connect === 'function') {
+            console.warn(`[ RIFFY PLAY ] Guild ${interaction.guildId}: Discord is in voice but Lavalink confirmation is missing. Retrying the controlled handshake once.`);
+            player.connect({
+                guildId: interaction.guildId,
+                voiceChannel: targetChannel,
+                textChannel: interaction.channelId,
+                deaf: player.deaf ?? true,
+                mute: player.mute ?? false
+            });
+            if (await waitForPlayerConnection(client, player, 9000)) return player;
+        }
+        throw new Error('Discord voice joined, but Lavalink did not confirm the voice handshake after retry.');
+    }
+
+    // No bot is present in Discord. Replace the stale/failed attempt once
+    // without asking the user to remove and re-add the bot manually.
+    console.warn(`[ RIFFY PLAY ] Join timed out guild=${interaction.guildId}; Discord still has no bot voice state. Clearing the failed player and retrying one fresh join.`);
+    player = await getOrCreateVoicePlayer(
+        client, interaction, nodeManager, targetChannel, true
+    );
+
+    if (await waitForPlayerConnection(client, player, 12000)) return player;
+    throw new Error('Discord voice join was not confirmed after one automatic retry.');
 }
 
 async function getSpotifyPlaylistTracks(playlistId) {
@@ -166,66 +338,9 @@ module.exports = {
             }
 
             const userVoiceChannel = interaction.member.voice.channelId;
-            
-            if (existingPlayer && existingPlayer.voiceChannel !== userVoiceChannel) {
-                try {
-                    const { cleanupTrackMessages } = require('../../player.js');
-                    await cleanupTrackMessages(client, existingPlayer);
-                    existingPlayer.queue.clear();
-                    existingPlayer.stop();
-                    await new Promise(resolve => setTimeout(resolve, 300));
-                    existingPlayer.destroy();
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                } catch (error) {
-                    console.error('Error destroying old player:', error);
-                    try {
-                        if (!existingPlayer.destroyed) {
-                            existingPlayer.destroy();
-                            await new Promise(resolve => setTimeout(resolve, 500));
-                        }
-                    } catch (e) {}
-                }
-            }
-
-            await nodeManager.checkAllNodesHealth().catch(() => {});
-            await nodeManager.forceConnectAllNodes().catch(() => {});
-            await new Promise(res => setTimeout(res, 400));
-            let player;
-            let attempts = 0;
-            const maxAttempts = 3;
-            while (attempts < maxAttempts) {
-                await nodeManager.ensureNodeAvailable();
-                try {
-                    player = client.riffy.createConnection({
-                        guildId: interaction.guildId,
-                        voiceChannel: userVoiceChannel,
-                        textChannel: interaction.channelId,
-                        deaf: true
-                    });
-                    break;
-                } catch (err) {
-                    attempts++;
-                    const msg = err?.message || '';
-                    if (attempts < maxAttempts && (msg.includes('No nodes are available') || msg.includes('fetch failed'))) {
-                        await nodeManager.reconnectNodesNow?.(5000).catch(() => {});
-                        await nodeManager.ensureNodeAvailable();
-                        await new Promise(res => setTimeout(res, 700));
-                        continue;
-                    }
-                    if (attempts >= maxAttempts) {
-                        await nodeManager.refreshRiffy?.();
-                        await nodeManager.ensureNodeAvailable();
-                        player = client.riffy.createConnection({
-                            guildId: interaction.guildId,
-                            voiceChannel: userVoiceChannel,
-                            textChannel: interaction.channelId,
-                            deaf: true
-                        });
-                        break;
-                    }
-                    throw err;
-                }
-            }
+            // Confirm the voice join before adding tracks. A failed join can
+            // now be retired and retried without losing a freshly queued song.
+            const player = await getConnectedVoicePlayer(client, interaction, nodeManager, userVoiceChannel);
 
             let tracksToQueue = [];
             let isPlaylist = false;
@@ -322,13 +437,14 @@ module.exports = {
                 console.warn(`Playlist truncated: ${tracksToQueue.length} tracks requested, only ${maxTracks} queued`);
             }
 
-            const connected = await waitForPlayerConnection(player);
-            if (!connected) {
-                throw new Error('Voice connection was not established. The bot did not join the voice channel.');
+            // A lengthy playlist resolve might outlive the voice session.
+            // Do not announce playback on a ghost player.
+            if (!(await waitForPlayerConnection(client, player, 3000))) {
+                throw new Error('The bot left voice while the requested track was loading.');
             }
 
             if (!player.playing && !player.paused) {
-                player.play();
+                await player.play();
             }
 
             const successTitle = isPlaylist ? t.success.titlePlaylist : t.success.titleTrack;
@@ -361,12 +477,21 @@ module.exports = {
         } catch (error) {
             const lang = await getLang(interaction.guildId).catch(() => ({ music: { play: { errors: {} } } }));
             const t = lang.music?.play?.errors || {};
-            
+
+            const message = String(error?.message || '');
+            const voiceProblem = /voice|lavalink|handshake|disconnected player|bot moved|join timed out/i.test(message);
+            if (voiceProblem) {
+                const player = client.riffy?.players?.get(interaction.guildId);
+                // Keep private gateway credentials out of diagnostic logs.
+                console.error(`[ RIFFY PLAY ] Voice join failed guild=${interaction.guildId} actualChannel=${getActualBotVoiceChannelId(client, interaction.guildId) || 'none'} playerTarget=${player?.voiceChannel || 'none'} localConnected=${player?.connected === true} hasConnection=${!!player?.connection} cause=${message}`);
+            }
             return handleCommandError(
                 interaction,
                 error,
                 'play',
-                (t.title || '## ❌ Error') + '\n\n' + (t.message || 'An error occurred while processing the request.\nPlease try again later.')
+                (t.title || '## ❌ Error') + '\n\n' +
+                (voiceProblem && t.voiceRecovery ? t.voiceRecovery :
+                    (t.message || 'An error occurred while processing the request.\nPlease try again later.'))
             );
         }
     },

@@ -675,7 +675,8 @@ module.exports = {
             },
             errors: {
                 title: "## ❌ Erro",
-                message: "Ocorreu um erro ao processar a solicitação.\nTente novamente mais tarde."
+                message: "Ocorreu um erro ao processar a solicitação.\nTente novamente mais tarde.",
+                voiceRecovery: "Não consegui restabelecer a conexão de voz após a recuperação automática. Verifique se o bot pode conectar e falar neste canal. Se persistir, avise o administrador para consultar os logs do bot."
             }
         },
         search: {

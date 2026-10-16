@@ -675,7 +675,8 @@ module.exports = {
             },
             errors: {
                 title: "## ❌ Error",
-                message: "An error occurred while processing the request.\nPlease try again later."
+                message: "An error occurred while processing the request.\nPlease try again later.",
+                voiceRecovery: "The bot could not restore its voice connection after an automatic retry. Check Connect and Speak permissions in this channel. If the problem continues, ask the administrator to inspect the bot logs."
             }
         },
         search: {

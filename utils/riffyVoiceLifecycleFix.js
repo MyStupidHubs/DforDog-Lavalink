@@ -4,13 +4,75 @@ const WATCHDOG_INTERVAL_MS = 6000;
 const HEARTBEAT_LOG_MS = 30000;
 const WS_CONNECTING = 0;
 const WS_OPEN = 1;
+const pendingPlayerDeletes = new Map();
+
+// Player.destroy() in Riffy 1.0.12 fires REST DELETE without awaiting it.
+// /play must not create a replacement for the same guild while an older
+// DELETE could still be in flight.
+async function waitForPendingPlayerDelete(guildId, timeoutMs = 8000) {
+    if (!guildId) return;
+    const pending = pendingPlayerDeletes.get(String(guildId));
+    if (!pending) return;
+
+    let timer;
+    try {
+        await Promise.race([
+            pending,
+            new Promise((_, reject) => {
+                timer = setTimeout(() => reject(new Error(
+                    'Timed out waiting for previous Lavalink player deletion'
+                )), timeoutMs);
+                timer.unref?.();
+            })
+        ]);
+    } finally {
+        clearTimeout(timer);
+    }
+}
 
 function getTrackKey(track) {
     return track?.info?.identifier || track?.info?.uri || track?.track || null;
 }
 
+function traceLavalinkPlayerDeletion(node) {
+    const rest = node?.rest;
+    if (!rest || rest.__dfordogDeleteTraceInstalled ||
+        typeof rest.destroyPlayer !== 'function') return;
+
+    const originalDestroyPlayer = rest.destroyPlayer.bind(rest);
+    rest.destroyPlayer = function(guildId, ...args) {
+        const stack = new Error('Lavalink DELETE request').stack
+            ?.split('\n').slice(2, 8).map(line => line.trim()).join(' <- ') || 'unknown';
+        // Never log Lavalink credentials, WebSocket tokens, or REST payloads.
+        console.warn(`[ LAVALINK DELETE TRACE ] guild=${guildId} node=${node.name || node.host || 'unknown'} caller=${stack}`);
+
+        const result = originalDestroyPlayer(guildId, ...args);
+        const key = String(guildId);
+        const previous = pendingPlayerDeletes.get(key);
+        // Track *all* concurrently requested deletes, not merely the latest.
+        // Observing a rejection here also avoids losing its diagnostic.
+        const current = Promise.resolve(result);
+        const combined = Promise.allSettled(previous ? [previous, current] : [current])
+            .then((results) => {
+                const failed = results.find((r) => r.status === 'rejected');
+                if (failed) {
+                    console.warn(`[ LAVALINK DELETE TRACE ] REST deletion failed guild=${key}: ${failed.reason?.message || failed.reason}`);
+                    throw failed.reason;
+                }
+            });
+        pendingPlayerDeletes.set(key, combined);
+        combined.then(
+            () => { if (pendingPlayerDeletes.get(key) === combined) pendingPlayerDeletes.delete(key); },
+            () => { if (pendingPlayerDeletes.get(key) === combined) pendingPlayerDeletes.delete(key); }
+        );
+        return result;
+    };
+    rest.__dfordogDeleteTraceInstalled = true;
+}
+
 function attachNodeSocketActivity(node) {
     if (!node) return;
+    traceLavalinkPlayerDeletion(node);
 
     const attach = () => {
         const ws = node.ws;
@@ -427,5 +489,6 @@ installLavalinkManagerRecovery();
 module.exports = {
     installRiffyVoiceLifecycleFix,
     installRiffyInstanceRecovery,
-    installLavalinkManagerRecovery
+    installLavalinkManagerRecovery,
+    waitForPendingPlayerDelete
 };

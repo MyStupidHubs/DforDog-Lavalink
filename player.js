@@ -404,6 +404,44 @@ async function initializePlayer(client) {
     client.lavalinkManager = nodeManager;
     client.nodeManager = nodeManager;
 
+    // Riffy 1.0.12 emits trackError (not trackException) and stops the
+    // Lavalink player immediately after dispatching it. Put one retry at the
+    // front of the queue BEFORE its stop() can trigger a queueEnd.
+    const failedTrackAttempts = new WeakMap();
+    const resumePositions = new WeakMap();
+    const retryInterruptedTrack = (player, track, cause) => {
+        if (!player?.guildId || !track?.track || !track?.info ||
+            client.riffy?.players?.get(player.guildId) !== player ||
+            player.current !== track || !player.queue ||
+            player.__dfordogIntentionalStop ||
+            player.__dfordogHandshakeRecovery) return false;
+
+        const position = Math.max(0, Number(player.position) || 0);
+        const length = Number(track.info.length) || 0;
+        if (length > 0 && length - position < 10000) return false;
+
+        const attempts = failedTrackAttempts.get(track) || 0;
+        if (attempts >= 1) return false;
+        failedTrackAttempts.set(track, attempts + 1);
+        resumePositions.set(track, length > 0 ? Math.min(position, length - 5000) : position);
+        player.queue.unshift(track);
+        console.warn(`[ RIFFY RECOVERY ] ${cause} for guild ${player.guildId}; retrying interrupted track once, from ~${Math.round(position / 1000)}s.`);
+
+        // Some Lavalink builds do not send TrackEndEvent after Riffy's stop().
+        // If the normal Riffy queue transition did not restart playback, do it.
+        const timer = setTimeout(() => {
+            if (client.riffy?.players?.get(player.guildId) !== player ||
+                player.playing === true || player.paused === true ||
+                player.__dfordogIntentionalStop || player.__dfordogHandshakeRecovery ||
+                player.queue?.[0] !== track) return;
+            Promise.resolve(player.play()).catch((error) => {
+                console.warn(`[ RIFFY RECOVERY ] Unable to retry guild ${player.guildId}: ${error?.message || error}`);
+            });
+        }, 1500);
+        timer.unref?.();
+        return true;
+    };
+
     client.riffy.on("nodeConnect", node => {
         console.log(`${colors.cyan}[ LAVALINK ]${colors.reset} ${colors.green}Node ${node.name} Connected ✅${colors.reset}`);
 
@@ -434,9 +472,11 @@ async function initializePlayer(client) {
         }
     });
 
-    client.riffy.on("trackException", async (player, error) => {
+    client.riffy.on("trackError", async (player, track, payload) => {
+        const retried = retryInterruptedTrack(player, track, 'TrackExceptionEvent');
         const langSync = getLangSync();
-        const errorMsg = error?.message || 'Unknown error';
+        const errorMsg = String(payload?.exception?.message || payload?.exception?.cause ||
+            payload?.message || 'Unknown error');
         const isTimeout = errorMsg.includes('timeout') || errorMsg.includes('Read timed out') || errorMsg.includes('SocketTimeoutException');
         
       
@@ -460,7 +500,7 @@ async function initializePlayer(client) {
             const trackErrorCard = cardFromMessage(
                 `${t.trackError?.title || '## ⚠️ Track Error'}\n\n` +
                 `${errorMessage}\n` +
-                `${t.trackError?.skipping || 'Skipping to next song...'}`,
+                `${retried ? 'Retrying the interrupted track once...' : (t.trackError?.skipping || 'Skipping to next song...')}`,
                 'Track Error'
             );
             channel.send({ 
@@ -470,18 +510,14 @@ async function initializePlayer(client) {
                 if (msg) setTimeout(() => msg.delete().catch(() => {}), 5000);
             });
         }
-        if (player && !player.destroyed) {
-            try {
-                player.stop();
-            } catch (stopError) {
-                // Ignore errors when stopping
-            }
-        }
+        // Native Riffy trackError() already calls stop() after emitting this
+        // event. A second stop here raced with queue transitions.
     });
 
-    client.riffy.on("trackStuck", (player, error) => {
+    client.riffy.on("trackStuck", (player, track, payload) => {
+        retryInterruptedTrack(player, track, 'TrackStuckEvent');
         const lang = getLangSync();
-        const errorMsg = error?.message || 'Unknown error';
+        const errorMsg = payload?.message || `stuck after ${payload?.thresholdMs || '?'}ms`;
         
         // Don't log connection timeout errors as critical (they're handled elsewhere)
         if (errorMsg.includes('Connect Timeout') || errorMsg.includes('fetch failed') || errorMsg.includes('timeout')) {
@@ -490,17 +526,25 @@ async function initializePlayer(client) {
             console.error(`${colors.cyan}[ LAVALINK ]${colors.reset} ${colors.red}${lang.console?.player?.trackStuck?.replace('{guildId}', player?.guildId || 'unknown').replace('{message}', errorMsg) || `Track Stuck for guild ${player?.guildId || 'unknown'}: ${errorMsg}`}${colors.reset}`);
         }
         
-        // Only stop if player is valid and not destroyed
-        if (player && !player.destroyed) {
-            try {
-                player.stop();
-            } catch (stopError) {
-                // Ignore errors when stopping stuck track
-            }
-        }
+        // Native Riffy trackStuck() handles stop(). Our queued retry is
+        // advanced by its TrackEndEvent, or by the fallback timer above.
     });
 
     client.riffy.on("trackStart", async (player, track) => {
+        const resumeAt = track && resumePositions.get(track);
+        if (resumeAt !== undefined) {
+            resumePositions.delete(track);
+            if (resumeAt > 0) {
+                const timer = setTimeout(() => {
+                    if (client.riffy?.players?.get(player.guildId) === player &&
+                        player.current === track && player.playing === true) {
+                        try { player.seek(Math.max(0, resumeAt - 1500)); }
+                        catch (error) { console.warn(`[ RIFFY RECOVERY ] Seek after retry failed: ${error?.message || error}`); }
+                    }
+                }, 500);
+                timer.unref?.();
+            }
+        }
         if (!track || !track.info) {
             const lang = getLangSync();
             console.error(`[ LAVALINK ] ${lang.console?.player?.trackNull?.replace('{guildId}', player.guildId) || `Track is null or missing info for guild ${player.guildId} - ignoring event`}`);
@@ -710,24 +754,65 @@ async function initializePlayer(client) {
     });
 
     client.riffy.on("queueEnd", async (player) => {
-        const channel = client.channels.cache.get(player.textChannel);
+        if (!player?.guildId) return;
         const guildId = player.guildId;
+        const channel = client.channels.cache.get(player.textChannel);
+
+        // A queueEnd is an observation from Riffy, not authorization to destroy
+        // whatever player exists after the async MongoDB/autoplay/card calls.
+        const queueStillEnded = () =>
+            client.riffy?.players?.get(guildId) === player &&
+            player.playing !== true &&
+            player.paused !== true &&
+            (player.queue?.length || 0) === 0 &&
+            !player.__dfordogHandshakeRecovery &&
+            player.__dfordogRetired !== true;
+
+        if (!queueStillEnded()) {
+            console.warn(`[ RIFFY QUEUE ] Ignoring stale queueEnd for guild ${guildId}: player/queue/playback already changed.`);
+            return;
+        }
+
+        // Riffy may report queueEnd after losing a websocket event while the
+        // Lavalink-side player is still playing. Confirm before issuing DELETE.
+        try {
+            const remotePlayers = await player.node?.rest?.getPlayers?.();
+            if (Array.isArray(remotePlayers)) {
+                const remote = remotePlayers.find((item) => String(item?.guildId) === String(guildId));
+                const remoteEncoded = remote?.track?.encoded || remote?.track?.track;
+                if (remoteEncoded) {
+                    if (remoteEncoded === player.current?.track) player.playing = true;
+                    console.warn(`[ RIFFY QUEUE ] Suppressed premature queueEnd for guild ${guildId}; Lavalink REST still reports an active track.`);
+                    return;
+                }
+            }
+        } catch (error) {
+            console.warn(`[ RIFFY QUEUE ] Unable to verify Lavalink state for guild ${guildId}: ${error?.message || error}`);
+        }
+
+        if (!queueStillEnded()) return;
         clearTrackMediaCache(guildId);
-    
+
         try {
             const settings = await autoplayCollection.findOne({ guildId });
+            if (!queueStillEnded()) return;
             const is24_7 = settings?.twentyfourseven;
-    
+
             if (settings?.autoplay) {
                 await cleanupPreviousTrackMessages(channel, guildId);
-                
-                const nextTrack = await player.autoplay(player);
+                if (!queueStillEnded()) return;
 
-                if (!nextTrack) {
+                const nextTrack = await player.autoplay(player);
+                // Riffy may return the same player even when autoplay found no
+                // candidate; in that case it is idle, not a successful play.
+                if (!nextTrack || (player.playing !== true && (player.queue?.length || 0) === 0)) {
+                    if (!queueStillEnded()) return;
                     await cleanupTrackMessages(client, player);
                     const lang = await getLang(guildId).catch(() => ({ console: { player: {} } }));
                     const t = lang.console?.player || {};
+
                     if (!is24_7) {
+                        if (!queueStillEnded()) return;
                         player.destroy();
                         await sendTransientCard(channel, t.queueEnd?.noMoreAutoplay || "⚠️ **No more tracks to autoplay. Disconnecting...**", 5000, 'Autoplay Ended');
                     } else {
@@ -739,6 +824,8 @@ async function initializePlayer(client) {
                 const lang = await getLang(guildId).catch(() => ({ player: {}, console: {} }));
                 const t = lang.console?.player || {};
                 const langSync = getLangSync();
+                if (!queueStillEnded()) return;
+
                 console.log(langSync.console?.player?.autoplayDisabled?.replace('{guildId}', guildId) || `Autoplay is disabled for guild: ${guildId}`);
                 if (!is24_7) {
                     player.destroy();
@@ -750,11 +837,13 @@ async function initializePlayer(client) {
         } catch (error) {
             const langSync = getLangSync();
             console.error(langSync.console?.player?.errorQueueEnd || "Error handling queue end:", error);
+            if (!queueStillEnded()) return;
             await cleanupTrackMessages(client, player);
-            const settings = await autoplayCollection.findOne({ guildId });
+            const settings = await autoplayCollection.findOne({ guildId }).catch(() => null);
             const lang = await getLang(guildId).catch(() => ({ console: { player: {} } }));
             const t = lang.console?.player || {};
-            if (!settings?.twentyfourseven) {
+
+            if (!settings?.twentyfourseven && queueStillEnded()) {
                 player.destroy();
                 await sendTransientCard(channel, t.queueEnd?.queueEmpty || "👾 **Queue Empty! Disconnecting...**", 5000, 'Queue Empty');
             }

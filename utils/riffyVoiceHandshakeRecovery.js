@@ -88,6 +88,17 @@ function retireFailedHandshake(player, reason) {
     const riffy = player.riffy;
     const guildId = player.guildId;
     const client = riffy?.client;
+
+    // A final-confirmation timeout from the PREVIOUS join must never issue
+    // Discord leave or Lavalink DELETE after /play installed a new player.
+    if (riffy?.players?.get(guildId) !== player) {
+        clearRecoveryTimers(player);
+        player.__dfordogHandshakeRecovery = null;
+        player.__dfordogHandshakeDead = true;
+        console.warn(`[ RIFFY HANDSHAKE ] Ignored stale timeout for retired player guild=${guildId}.`);
+        return;
+    }
+
     const actualVoice = getActualBotVoiceChannelId(client, guildId);
 
     console.warn(`[ RIFFY HANDSHAKE ] Giving up failed voice handshake for guild ${guildId}; removing zombie player. reason=${reason}.`);
