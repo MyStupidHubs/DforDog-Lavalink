@@ -477,12 +477,21 @@ module.exports = {
         } catch (error) {
             const lang = await getLang(interaction.guildId).catch(() => ({ music: { play: { errors: {} } } }));
             const t = lang.music?.play?.errors || {};
-            
+
+            const message = String(error?.message || '');
+            const voiceProblem = /voice|lavalink|handshake|disconnected player|bot moved|join timed out/i.test(message);
+            if (voiceProblem) {
+                const player = client.riffy?.players?.get(interaction.guildId);
+                // Keep private gateway credentials out of diagnostic logs.
+                console.error(`[ RIFFY PLAY ] Voice join failed guild=${interaction.guildId} actualChannel=${getActualBotVoiceChannelId(client, interaction.guildId) || 'none'} playerTarget=${player?.voiceChannel || 'none'} localConnected=${player?.connected === true} hasConnection=${!!player?.connection} cause=${message}`);
+            }
             return handleCommandError(
                 interaction,
                 error,
                 'play',
-                (t.title || '## ❌ Error') + '\n\n' + (t.message || 'An error occurred while processing the request.\nPlease try again later.')
+                (t.title || '## ❌ Error') + '\n\n' +
+                (voiceProblem && t.voiceRecovery ? t.voiceRecovery :
+                    (t.message || 'An error occurred while processing the request.\nPlease try again later.'))
             );
         }
     },
