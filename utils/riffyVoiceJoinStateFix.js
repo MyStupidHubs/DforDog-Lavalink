@@ -110,18 +110,34 @@ function installPlayerVoiceSemanticsFix() {
         const riffy = this.riffy;
         const guildId = this.guildId;
 
-        if (riffy && guildId) {
-            if (!riffy.__dfordogVoiceDisconnectRequests) {
-                riffy.__dfordogVoiceDisconnectRequests = new Map();
-            }
-
-            riffy.__dfordogVoiceDisconnectRequests.set(guildId, {
-                at: Date.now(),
-                player: this
-            });
+        // Native Riffy 1.0.12's destroy() is NOT idempotent: every invocation
+        // issues another REST DELETE for the same guild, and a late DELETE from
+        // a retired player can erase the next voice connection. Never allow
+        // duplicate destruction or an obsolete player to destroy its successor.
+        if (!riffy || !guildId || riffy.players?.get(guildId) !== this ||
+            this.__dfordogDestroyIssued === true ||
+            this.__dfordogRetired === true) {
+            console.warn(`[ RIFFY DESTROY ] Suppressed obsolete/duplicate destroy guild=${guildId || 'unknown'} mapped=${riffy?.players?.get(guildId) === this} issued=${this.__dfordogDestroyIssued === true}.`);
+            return;
         }
 
-        return originalDestroy.apply(this, args);
+        this.__dfordogDestroyIssued = true;
+        if (!riffy.__dfordogVoiceDisconnectRequests) {
+            riffy.__dfordogVoiceDisconnectRequests = new Map();
+        }
+        riffy.__dfordogVoiceDisconnectRequests.set(guildId, {
+            at: Date.now(),
+            player: this
+        });
+
+        try {
+            return originalDestroy.apply(this, args);
+        } catch (error) {
+            // The native method may throw synchronously before removing the
+            // map entry. Permit a controlled retry of that same player.
+            this.__dfordogDestroyIssued = false;
+            throw error;
+        }
     };
 
     Object.defineProperty(Player.prototype, '__dfordogConfirmedVoiceSemanticsV11', {
