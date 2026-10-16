@@ -192,9 +192,22 @@ async function getConnectedVoicePlayer(client, interaction, nodeManager, targetC
     }
 
     if (actual) {
-        // Discord is in the right channel but Lavalink never confirmed voice.
-        // Do not issue a second join blindly while the first handshake is live.
-        throw new Error('Discord voice joined, but Lavalink did not confirm the voice handshake.');
+        // The bot is visibly in the requested Discord channel, but Lavalink
+        // did not confirm the voice handshake. Re-arm Riffy's native v12
+        // controlled handshake recovery ONCE, preserving the player/queue.
+        if (client.riffy.players.get(interaction.guildId) === player &&
+            player.connection && typeof player.connect === 'function') {
+            console.warn(`[ RIFFY PLAY ] Guild ${interaction.guildId}: Discord is in voice but Lavalink confirmation is missing. Retrying the controlled handshake once.`);
+            player.connect({
+                guildId: interaction.guildId,
+                voiceChannel: targetChannel,
+                textChannel: interaction.channelId,
+                deaf: player.deaf ?? true,
+                mute: player.mute ?? false
+            });
+            if (await waitForPlayerConnection(client, player, 9000)) return player;
+        }
+        throw new Error('Discord voice joined, but Lavalink did not confirm the voice handshake after retry.');
     }
 
     // No bot is present in Discord. Replace the stale/failed attempt once
