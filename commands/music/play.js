@@ -5,6 +5,7 @@ const { getData } = require('spotify-url-info')(require('node-fetch'));
 const { sendErrorResponse, handleCommandError, safeDeferReply, buildPaleCard, sanitizeTitle, stripLeadingIcons } = require('../../utils/responseHandler.js');
 const { checkVoiceChannel: checkVC } = require('../../utils/voiceChannelCheck.js');
 const { getActualBotVoiceChannelId, retireStalePlayerWithoutGatewayDisconnect } = require('../../utils/riffyVoiceJoinStateFix.js');
+const { waitForPendingPlayerDelete } = require('../../utils/riffyVoiceLifecycleFix.js');
 const { getLavalinkManager } = require('../../lavalink.js');
 const { getLang } = require('../../utils/languageLoader');
 const { getEmoji } = require('../../UI/emojis/emoji');
@@ -71,10 +72,14 @@ async function withGuildVoiceJoinLock(guildId, task) {
     }
 }
 
-async function getOrCreateVoicePlayer(client, interaction, nodeManager, userVoiceChannel) {
+async function getOrCreateVoicePlayer(client, interaction, nodeManager, userVoiceChannel, forceFresh = false) {
     const guildId = interaction.guildId;
 
     return withGuildVoiceJoinLock(guildId, async () => {
+        // Riffy Player.destroy() does not await its HTTP DELETE. If /play
+        // starts while that request is still in flight, it can delete the
+        // freshly created player on the Lavalink side.
+        await waitForPendingPlayerDelete(guildId);
         const actualBotVoiceChannelId = getActualBotVoiceChannelId(client, guildId);
         // The command has already checked this, but another user may have
         // moved the bot while node availability was being checked.
@@ -88,7 +93,10 @@ async function getOrCreateVoicePlayer(client, interaction, nodeManager, userVoic
             const joinAge = now - (oldPlayer.__dfordogVoiceJoinStartedAt || 0);
             const unexpectedRejoinAge = now - (oldPlayer.__dfordogUnexpectedRejoinAt || 0);
             const recoveryAge = now - (oldPlayer.__dfordogHandshakeRecovery?.startedAt || 0);
-            const joinInProgress = !!oldPlayer.connection &&
+            const confirmedLeaveAfterJoin = !!oldPlayer.__dfordogBotVoiceLeftAt &&
+                oldPlayer.__dfordogBotVoiceLeftAt > (oldPlayer.__dfordogBotVoiceJoinedAt || 0) &&
+                !oldPlayer.__dfordogHandshakeRecovery;
+            const joinInProgress = !!oldPlayer.connection && !confirmedLeaveAfterJoin &&
                 (joinAge < 12000 || unexpectedRejoinAge < 12000 ||
                     (oldPlayer.__dfordogHandshakeRecovery && recoveryAge < 12000));
             const target = oldPlayer.voiceChannel || oldPlayer.connection?.voiceChannel || null;
@@ -98,11 +106,13 @@ async function getOrCreateVoicePlayer(client, interaction, nodeManager, userVoic
             const incomplete = !oldPlayer.connection ||
                 oldPlayer.__dfordogRetired === true || oldPlayer.__dfordogHandshakeDead === true;
 
-            if (absentFromDiscord || wrongStoredChannel || incomplete) {
+            if (forceFresh || absentFromDiscord || wrongStoredChannel || incomplete) {
                 console.warn('[ RIFFY PLAY ] Stale voice player detected guild=' + guildId +
                     ' DiscordChannel=' + (actualBotVoiceChannelId || 'none') +
                     ' RiffyChannel=' + (target || 'none') +
-                    ' localConnected=' + (oldPlayer.connected === true));
+                    ' localConnected=' + (oldPlayer.connected === true) +
+                    ' confirmedLeave=' + confirmedLeaveAfterJoin +
+                    ' forceFresh=' + forceFresh);
 
                 // Invalidate and await the OLD Lavalink player deletion before
                 // creating the replacement. Never send Discord channel_id=null:
@@ -112,9 +122,12 @@ async function getOrCreateVoicePlayer(client, interaction, nodeManager, userVoic
                     console.warn('[ RIFFY PLAY ] Old track card cleanup failed: ' + (error?.message || error));
                 });
                 if (client.riffy.players.get(guildId) === oldPlayer) {
-                    await retireStalePlayerWithoutGatewayDisconnect(
-                        client.riffy, oldPlayer, 'Discord channel state does not match Riffy player'
+                    const retired = await retireStalePlayerWithoutGatewayDisconnect(
+                        client.riffy, oldPlayer, 'Discord voice no longer matches the Riffy player'
                     );
+                    if (retired === false) {
+                        throw new Error('Lavalink could not remove the previous disconnected player');
+                    }
                 }
             }
         }
@@ -122,6 +135,10 @@ async function getOrCreateVoicePlayer(client, interaction, nodeManager, userVoic
         await nodeManager.checkAllNodesHealth().catch(() => {});
         await nodeManager.forceConnectAllNodes().catch(() => {});
         await new Promise(resolve => setTimeout(resolve, 400));
+
+        // Recheck after other health tasks: a late old DELETE must be fully
+        // complete before allocating the new player for this guild.
+        await waitForPendingPlayerDelete(guildId);
 
         let player;
         let attempts = 0;
@@ -163,6 +180,32 @@ async function getOrCreateVoicePlayer(client, interaction, nodeManager, userVoic
         if (!player) throw new Error('Unable to create a Lavalink voice player.');
         return player;
     });
+}
+
+async function getConnectedVoicePlayer(client, interaction, nodeManager, targetChannel) {
+    let player = await getOrCreateVoicePlayer(client, interaction, nodeManager, targetChannel);
+    if (await waitForPlayerConnection(client, player, 8000)) return player;
+
+    const actual = getActualBotVoiceChannelId(client, interaction.guildId);
+    if (actual && actual !== targetChannel) {
+        throw new Error('The bot is currently connected to another voice channel.');
+    }
+
+    if (actual) {
+        // Discord is in the right channel but Lavalink never confirmed voice.
+        // Do not issue a second join blindly while the first handshake is live.
+        throw new Error('Discord voice joined, but Lavalink did not confirm the voice handshake.');
+    }
+
+    // No bot is present in Discord. Replace the stale/failed attempt once
+    // without asking the user to remove and re-add the bot manually.
+    console.warn(`[ RIFFY PLAY ] Join timed out guild=${interaction.guildId}; Discord still has no bot voice state. Clearing the failed player and retrying one fresh join.`);
+    player = await getOrCreateVoicePlayer(
+        client, interaction, nodeManager, targetChannel, true
+    );
+
+    if (await waitForPlayerConnection(client, player, 12000)) return player;
+    throw new Error('Discord voice join was not confirmed after one automatic retry.');
 }
 
 async function getSpotifyPlaylistTracks(playlistId) {
@@ -282,7 +325,9 @@ module.exports = {
             }
 
             const userVoiceChannel = interaction.member.voice.channelId;
-            const player = await getOrCreateVoicePlayer(client, interaction, nodeManager, userVoiceChannel);
+            // Confirm the voice join before adding tracks. A failed join can
+            // now be retired and retried without losing a freshly queued song.
+            const player = await getConnectedVoicePlayer(client, interaction, nodeManager, userVoiceChannel);
 
             let tracksToQueue = [];
             let isPlaylist = false;
@@ -379,9 +424,10 @@ module.exports = {
                 console.warn(`Playlist truncated: ${tracksToQueue.length} tracks requested, only ${maxTracks} queued`);
             }
 
-            const connected = await waitForPlayerConnection(client, player);
-            if (!connected) {
-                throw new Error('Voice connection was not established. The bot did not join the voice channel.');
+            // A lengthy playlist resolve might outlive the voice session.
+            // Do not announce playback on a ghost player.
+            if (!(await waitForPlayerConnection(client, player, 3000))) {
+                throw new Error('The bot left voice while the requested track was loading.');
             }
 
             if (!player.playing && !player.paused) {
