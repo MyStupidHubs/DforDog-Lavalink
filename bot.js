@@ -389,6 +389,16 @@ client.on("raw", (d) => {
     if (d.t === GatewayDispatchEvents.VoiceStateUpdate &&
         d.d?.user_id === client.user?.id) {
         const player = client.riffy?.players?.get(d.d?.guild_id);
+        if (player) {
+            if (d.d.channel_id == null) {
+                // Remember a real Discord leave even when another recovery
+                // wrapper later intercepts the packet. This invalidates the
+                // optimistic join grace period when /play follows a kick.
+                player.__dfordogBotVoiceLeftAt = Date.now();
+            } else {
+                player.__dfordogBotVoiceJoinedAt = Date.now();
+            }
+        }
         console.log(`[ RIFFY VOICE TRACE ] Bot gateway state guild=${d.d?.guild_id || 'none'} channel=${d.d?.channel_id || 'none'} mapped=${!!player} playing=${player?.playing === true} paused=${player?.paused === true} reconnecting=${!!player?.__dfordogHandshakeRecovery}`);
     }
 
