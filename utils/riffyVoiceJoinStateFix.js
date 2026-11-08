@@ -4,8 +4,6 @@ const StatusManager = require('./statusManager.js');
 
 const LATE_DISCONNECT_WINDOW_MS = 4000;
 const JOIN_BOOTSTRAP_WINDOW_MS = 4000;
-const UNEXPECTED_REJOIN_DELAY_MS = 250;
-const UNEXPECTED_REJOIN_COOLDOWN_MS = 60000;
 
 function getActualBotVoiceChannelId(client, guildId) {
     const guild = client?.guilds?.cache?.get(guildId);
@@ -221,63 +219,13 @@ function installRiffyJoinRaceFix() {
                 }
             }
 
-            // Riffy 1.0.12 destroys the player immediately for every bot
-            // channel_id=null event. On a spontaneous Discord voice drop that
-            // also destroys the queue and sends DELETE to Lavalink. Preserve
-            // active playback and ask Discord to join again instead.
+            // A channel_id=null update from Discord may mean that a moderator
+            // disconnected the bot from voice. Respect that external action:
+            // let Riffy clean up the player/queue instead of rejoining.
+            // Internal handshake leave/rejoin acknowledgements are intercepted
+            // by riffyVoiceHandshakeRecovery before they reach this handler.
             if (packet.d.channel_id == null && currentPlayer) {
-                const now = Date.now();
-                const requestedLeave = disconnectMarker?.player === currentPlayer &&
-                    now - disconnectMarker.at <= 15000;
-                const target = currentPlayer.voiceChannel || currentPlayer.connection?.voiceChannel;
-                const lastRejoinAt = currentPlayer.__dfordogUnexpectedRejoinAt || 0;
-                const retryAllowed = !lastRejoinAt ||
-                    now - lastRejoinAt >= UNEXPECTED_REJOIN_COOLDOWN_MS;
-                const activeTrack = (currentPlayer.playing === true ||
-                    currentPlayer.paused === true) &&
-                    !!currentPlayer.current && !!currentPlayer.connection;
-
-                if (!requestedLeave && retryAllowed && activeTrack && target &&
-                    currentPlayer.__dfordogRetired !== true &&
-                    currentPlayer.__dfordogHandshakeDead !== true &&
-                    !currentPlayer.__dfordogHandshakeRecovery) {
-                    currentPlayer.__dfordogUnexpectedRejoinAt = now;
-                    currentPlayer.connected = false;
-                    const wasPaused = currentPlayer.paused === true;
-                    console.warn(`[ RIFFY VOICE ] Unexpected Discord voice leave in guild ${guildId}; playing=${currentPlayer.playing === true} paused=${wasPaused}, rejoining ${target} without destroying the Lavalink player.`);
-
-                    const timer = setTimeout(() => {
-                        if (this.players?.get(guildId) !== currentPlayer ||
-                            currentPlayer.__dfordogRetired === true ||
-                            currentPlayer.__dfordogHandshakeDead === true) return;
-
-                        try {
-                            // Riffy unpauses on VOICE_SERVER_UPDATE after a rejoin.
-                            // Restore the original user's paused state as soon as
-                            // the Lavalink connection confirms it is alive again.
-                            if (wasPaused) {
-                                currentPlayer.once('connectionRestored', () => {
-                                    if (this.players?.get(guildId) !== currentPlayer) return;
-                                    Promise.resolve(currentPlayer.pause(true)).catch((error) => {
-                                        console.warn(`[ RIFFY VOICE ] Could not restore paused track in guild ${guildId}: ${error?.message || error}`);
-                                    });
-                                });
-                            }
-
-                            currentPlayer.connect({
-                                guildId,
-                                voiceChannel: target,
-                                textChannel: currentPlayer.textChannel,
-                                deaf: currentPlayer.deaf ?? true,
-                                mute: currentPlayer.mute ?? false
-                            });
-                        } catch (error) {
-                            console.warn(`[ RIFFY VOICE ] Unexpected voice rejoin failed for guild ${guildId}: ${error?.message || error}`);
-                        }
-                    }, UNEXPECTED_REJOIN_DELAY_MS);
-                    timer.unref?.();
-                    return;
-                }
+                console.log(`[ RIFFY VOICE ] Bot left voice in guild ${guildId}; respecting Discord disconnect (no automatic rejoin).`);
             }
 
             if (packet.d.channel_id != null && currentPlayer) {
